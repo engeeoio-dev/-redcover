@@ -528,7 +528,7 @@ export const PublicLandingPage: React.FC = () => {
               Discover &amp; Read
             </h3>
             <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8] leading-relaxed">
-              Explore stories across genres. Read directly in your browser with our responsive reader supporting custom themes, font sizes, and dark mode.
+              Explore stories across genres. Read directly in your browser with our responsive reader supporting appearance and font-size controls.
             </p>
           </div>
 

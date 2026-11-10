@@ -55,89 +55,6 @@ body {
   color: #F5F5F7;
 }
 
-/* 1. Midnight Theme (Member Exclusive) */
-.theme-midnight body {
-  background-color: #050811;
-  color: #E2E8F0;
-}
-.theme-midnight .dark\:bg-\[\#0F0F12\],
-.theme-midnight .dark\:bg-\[\#121216\],
-.theme-midnight .dark\:bg-\[\#141418\],
-.theme-midnight .dark\:bg-\[\#16161A\],
-.theme-midnight .dark\:bg-\[\#0E0E12\],
-.theme-midnight .dark\:bg-\[\#121217\] {
-  background-color: #0A0F1F !important;
-}
-.theme-midnight .dark\:bg-\[\#1E1E24\],
-.theme-midnight .dark\:bg-\[\#1F1F26\],
-.theme-midnight .dark\:bg-\[\#22222A\] {
-  background-color: #121B33 !important;
-}
-.theme-midnight .dark\:border-\[\#2C2C35\],
-.theme-midnight .dark\:border-\[\#22222A\] {
-  border-color: #1E294B !important;
-}
-
-/* 2. Sepia Theme (Member Exclusive) */
-.theme-sepia {
-  color-scheme: light;
-  --rc-bg: #F5EFE6;
-  --rc-surface: #FDFBF7;
-  --rc-text-primary: #382A1B;
-  --rc-text-secondary: #7A6953;
-  --rc-border: #E3D7C5;
-}
-.theme-sepia body {
-  background-color: #F5EFE6;
-  color: #382A1B;
-}
-
-/* 3. Crimson Theme (Member Exclusive) */
-.theme-crimson body {
-  background-color: #120507;
-  color: #FCE7E9;
-}
-.theme-crimson .dark\:bg-\[\#0F0F12\],
-.theme-crimson .dark\:bg-\[\#121216\],
-.theme-crimson .dark\:bg-\[\#141418\],
-.theme-crimson .dark\:bg-\[\#16161A\],
-.theme-crimson .dark\:bg-\[\#0E0E12\],
-.theme-crimson .dark\:bg-\[\#121217\] {
-  background-color: #1A080B !important;
-}
-.theme-crimson .dark\:bg-\[\#1E1E24\],
-.theme-crimson .dark\:bg-\[\#1F1F26\],
-.theme-crimson .dark\:bg-\[\#22222A\] {
-  background-color: #280D12 !important;
-}
-.theme-crimson .dark\:border-\[\#2C2C35\],
-.theme-crimson .dark\:border-\[\#22222A\] {
-  border-color: #3D141C !important;
-}
-
-/* 4. Emerald Theme (Member Exclusive) */
-.theme-emerald body {
-  background-color: #05100B;
-  color: #E2F5ED;
-}
-.theme-emerald .dark\:bg-\[\#0F0F12\],
-.theme-emerald .dark\:bg-\[\#121216\],
-.theme-emerald .dark\:bg-\[\#141418\],
-.theme-emerald .dark\:bg-\[\#16161A\],
-.theme-emerald .dark\:bg-\[\#0E0E12\],
-.theme-emerald .dark\:bg-\[\#121217\] {
-  background-color: #091C13 !important;
-}
-.theme-emerald .dark\:bg-\[\#1E1E24\],
-.theme-emerald .dark\:bg-\[\#1F1F26\],
-.theme-emerald .dark\:bg-\[\#22222A\] {
-  background-color: #0E291C !important;
-}
-.theme-emerald .dark\:border-\[\#2C2C35\],
-.theme-emerald .dark\:border-\[\#22222A\] {
-  border-color: #18422F !important;
-}
-
 /* Unify all dark surface utilities into True Black (#000000 / #0A0A0D / #121217) */
 .dark .dark\:bg-\[\#0F0F12\],
 .dark .dark\:bg-\[\#121216\],
@@ -196,6 +113,38 @@ body {
 .font-mono-tabular {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+.pdf-page-turn {
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  animation: pdf-page-turn 420ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+@keyframes pdf-page-turn {
+  0% {
+    opacity: 0.55;
+    filter: brightness(0.78);
+    transform: perspective(1100px) rotateY(-11deg) translateX(10px);
+    box-shadow: -10px 8px 18px rgb(0 0 0 / 22%);
+  }
+  68% {
+    opacity: 1;
+    filter: brightness(1.02);
+    transform: perspective(1100px) rotateY(2deg);
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+    transform: perspective(1100px) rotateY(0);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-page-turn {
+    animation: none;
+  }
 }
 
 .tabular-nums {

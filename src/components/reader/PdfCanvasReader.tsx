@@ -192,7 +192,7 @@ export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
 
   const [currentPage, setCurrentPage] = useState<number>(Math.max(1, initialPage || 1));
   const [pageInput, setPageInput] = useState<string>(String(Math.max(1, initialPage || 1)));
-  const [scrollMode, setScrollMode] = useState<PdfScrollMode>('continuous');
+  const [scrollMode, setScrollMode] = useState<PdfScrollMode>('single');
   const [fitMode, setFitMode] = useState<PdfFitMode>('width');
   const [customZoom, setCustomZoom] = useState<number>(1.15);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({
@@ -707,7 +707,7 @@ export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
           </div>
         ) : pdfDoc ? (
           scrollMode === 'single' ? (
-            <div className="py-2">
+            <div key={`page-turn-${currentPage}`} className="py-2 pdf-page-turn">
               <LazyPdfPageCanvas
                 key={`single-${currentPage}`}
                 pdfDoc={pdfDoc}
@@ -749,7 +749,9 @@ export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
                     minHeight: `${sheetMinHeight}px`,
                     fontSize: `${sheetFontSize}px`,
                   }}
-                  className="mx-auto bg-white text-[#171717] shadow-md rounded-sm border border-[#DDDCE3] px-8 sm:px-14 py-10 sm:py-14 flex flex-col justify-between transition-all"
+                  className={`mx-auto bg-white text-[#171717] shadow-md rounded-sm border border-[#DDDCE3] px-8 sm:px-14 py-10 sm:py-14 flex flex-col justify-between transition-all ${
+                    scrollMode === 'single' ? 'pdf-page-turn' : ''
+                  }`}
                 >
                   <div>
                     <div className="flex items-center justify-between border-b border-[#EBEBEF] pb-3 mb-6 text-[11px] text-[#777782] uppercase tracking-wider">

@@ -6,7 +6,6 @@ import {
   TrendingUp,
   PenTool,
   MessageSquarePlus,
-  Award,
   X,
   Send,
 } from 'lucide-react';
@@ -43,12 +42,6 @@ const COMPOSER_MODES: {
     label: 'Reading Progress',
     placeholder: 'What chapter are you on and what do you think so far?',
     needsBook: true,
-  },
-  {
-    id: 'reading_achievement',
-    label: 'Reading Milestone',
-    placeholder: 'Celebrate finishing a book or reaching your reading streak milestone!',
-    needsBook: false,
   },
   {
     id: 'story_publication',
@@ -95,15 +88,6 @@ export const SocialComposer: React.FC = () => {
     if (!selectedBookId && publishedBooks.length > 0) {
       setSelectedBookId(publishedBooks[0].id);
     }
-    if (mode === 'reading_achievement' && currentUser && !text.trim()) {
-      const completedCount = readingProgress.filter((p) => p.percentage >= 100).length;
-      setText(
-        completedCount > 0
-          ? `Just completed ${completedCount} ${completedCount === 1 ? 'book' : 'books'} on Redcover and reached a ${currentUser.streakDays}-day reading streak!`
-          : `Reached a ${currentUser.streakDays}-day reading streak with ${currentUser.points.toLocaleString()} Redcover points!`
-      );
-      setProgressPercentage(100);
-    }
     setIsOpen(true);
   };
 
@@ -139,8 +123,6 @@ export const SocialComposer: React.FC = () => {
         progressPercentage:
           postType === 'reading_update'
             ? progressPercentage
-            : postType === 'reading_achievement'
-            ? 100
             : 0,
         chapterNumber: postType === 'reading_update' ? chapterNumber : 0,
       });
@@ -205,14 +187,6 @@ export const SocialComposer: React.FC = () => {
             <span>Update Reading Progress</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => openWithMode('reading_achievement')}
-            className="py-1.5 px-3 rounded-lg text-xs font-medium text-[#202020] dark:text-[#F4F4F6] hover:bg-[#FFF3F4] dark:hover:bg-[#2D1619] hover:text-[#E43136] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <Award className="w-3.5 h-3.5 text-[#E6A02C]" />
-            <span>Milestone</span>
-          </button>
         </div>
 
         <button
@@ -261,7 +235,7 @@ export const SocialComposer: React.FC = () => {
           </div>
 
           {/* Book Selector when post references a book */}
-          {(activeModeConfig.needsBook || postType === 'discussion' || postType === 'reading_achievement') &&
+          {(activeModeConfig.needsBook || postType === 'discussion') &&
             publishedBooks.length > 0 && (
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl bg-[#FAFAFB] dark:bg-[#0F0F12] border border-[#DDDDE3] dark:border-[#2C2C35]">
                 <div className="flex-1 min-w-0">

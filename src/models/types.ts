@@ -1,6 +1,7 @@
 export type UserRole = 'user' | 'author' | 'admin' | 'system';
 export type MembershipPlan = 'free' | 'premium';
 export type BookFormat = 'story' | 'pdf';
+export type BookReadingMode = 'text' | 'pdf' | 'audio';
 export type BookStatus = 'draft' | 'published' | 'pending' | 'removed';
 export type NotificationCategory =
   | 'social'
@@ -11,15 +12,7 @@ export type NotificationCategory =
   | 'groups'
   | 'system';
 export type FriendshipStatus = 'pending' | 'accepted' | 'rejected' | 'blocked';
-export type AppTheme = 'light' | 'dark' | 'custom';
-
-export interface CustomThemeConfig {
-  bgColor: string;
-  surfaceColor: string;
-  accentColor: string;
-  textColor: string;
-  nameColor?: string;
-}
+export type AppTheme = 'light' | 'dark';
 
 export const REDCOVER_SYSTEM_ACCOUNT = {
   email: 'engeeo.io@gmail.com',
@@ -86,7 +79,6 @@ export interface UserPrivateInfo {
   readingReminders: boolean;
   notificationSettings: 'all' | 'important' | 'none';
   theme: AppTheme;
-  customTheme?: CustomThemeConfig;
   subscriptionExpiry: string;
   updatedAt: string;
 }
@@ -103,6 +95,7 @@ export interface Book {
   coverURL: string;
   fileURL: string;
   format: BookFormat;
+  availableModes?: BookReadingMode[];
   category: string;
   language: string;
   rating: number;

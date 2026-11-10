@@ -49,7 +49,6 @@ import {
 } from '../services/firebase/storageService';
 import {
   AppTheme,
-  CustomThemeConfig,
   Book,
   BookLike,
   Chapter,
@@ -99,7 +98,16 @@ import {
   respondToRemoteRequest as respondToRemoteRequestService,
   endReadingSession as endReadingSessionService,
 } from '../services/firebase/readingSessionService';
-import { SEED_BOOKS, SEED_CHAPTERS, SEED_USERS } from '../data/seedCatalog';
+
+const DEMO_BOOK_IDS = new Set([
+  'rc-book-crimson-letters',
+  'rc-book-compounding-mind',
+  'rc-book-monk-protocol',
+  'rc-book-zero-to-scale',
+  'rc-book-stoic-compass',
+  'rc-book-velvet-cipher',
+]);
+const DEMO_USER_IDS = new Set(['author-arjun-mehta', 'author-elena-vance', 'author-kabir-sen']);
 
 export interface ToastMessage {
   id: string;
@@ -149,12 +157,10 @@ interface RedcoverContextValue {
   sourceStats: FirebaseSourceStats;
   toasts: ToastMessage[];
   theme: AppTheme;
-  customTheme: CustomThemeConfig;
   recentSearches: string[];
   addToast: (text: string, type?: 'success' | 'error' | 'info') => void;
   dismissToast: (id: string) => void;
   setTheme: (theme: AppTheme) => Promise<void>;
-  setCustomTheme: (config: CustomThemeConfig) => Promise<void>;
   addRecentSearch: (term: string) => void;
   clearRecentSearches: () => void;
   loginWithGoogle: () => Promise<void>;
@@ -162,7 +168,6 @@ interface RedcoverContextValue {
   registerWithEmail: (email: string, pass: string, displayName: string, username: string) => Promise<void>;
   sendResetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
-  seedInitialDataToFirebase: () => Promise<void>;
   toggleSaveBook: (book: Book) => Promise<void>;
   toggleLikeBook: (book: Book) => Promise<void>;
   incrementBookView: (book: Book) => Promise<void>;
@@ -326,22 +331,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [theme, setThemeState] = useState<AppTheme>(() => {
     const saved = localStorage.getItem('rc_theme');
-    const valid: AppTheme[] = ['light', 'dark', 'custom'];
-    return valid.includes(saved as AppTheme) ? (saved as AppTheme) : 'light';
-  });
-
-  const [customTheme, setCustomThemeState] = useState<CustomThemeConfig>(() => {
-    try {
-      const saved = localStorage.getItem('rc_custom_theme');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {
-      bgColor: '#0A1128',
-      surfaceColor: '#101C42',
-      accentColor: '#38BDF8',
-      textColor: '#F8FAFC',
-      nameColor: '#38BDF8',
-    };
+    return saved === 'dark' ? 'dark' : 'light';
   });
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     try {
@@ -366,76 +356,11 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove('dark', 'theme-custom');
-
-    let styleTag = document.getElementById('rc-custom-theme-styles') as HTMLStyleElement | null;
-
-    if (theme === 'dark') {
-      root.classList.add('dark');
-      if (styleTag) styleTag.innerHTML = '';
-    } else if (theme === 'custom') {
-      root.classList.add('dark', 'theme-custom');
-      if (!styleTag) {
-        styleTag = document.createElement('style');
-        styleTag.id = 'rc-custom-theme-styles';
-        document.head.appendChild(styleTag);
-      }
-      styleTag.innerHTML = `
-        :root.theme-custom {
-          --rc-custom-bg: ${customTheme.bgColor};
-          --rc-custom-surface: ${customTheme.surfaceColor};
-          --rc-custom-accent: ${customTheme.accentColor};
-          --rc-custom-text: ${customTheme.textColor};
-        }
-        html.theme-custom,
-        html.theme-custom body,
-        html.theme-custom #root,
-        html.theme-custom .app-shell,
-        html.theme-custom [class*="bg-[#FAFAFB]"],
-        html.theme-custom [class*="bg-black"],
-        html.theme-custom [class*="dark:bg-black"],
-        html.theme-custom [class*="bg-[#101015]"],
-        html.theme-custom [class*="dark:bg-[#101015]"],
-        html.theme-custom [class*="bg-[#121217]"],
-        html.theme-custom [class*="dark:bg-[#121217]"],
-        html.theme-custom [class*="bg-[#16161A]"],
-        html.theme-custom [class*="dark:bg-[#16161A]"],
-        html.theme-custom [class*="dark:bg-[#0A0A0D]"] {
-          background-color: var(--rc-custom-bg) !important;
-          color: var(--rc-custom-text) !important;
-        }
-        html.theme-custom header,
-        html.theme-custom [class*="bg-white"],
-        html.theme-custom [class*="dark:bg-[#171720]"],
-        html.theme-custom [class*="dark:bg-[#181820]"],
-        html.theme-custom [class*="dark:bg-[#1A1A22]"],
-        html.theme-custom [class*="dark:bg-[#1E1E28]"],
-        html.theme-custom [class*="dark:bg-[#1C1C24]"],
-        html.theme-custom [class*="dark:bg-[#20202A]"] {
-          background-color: var(--rc-custom-surface) !important;
-        }
-        html.theme-custom [class*="bg-[#E43136]"]:not(.preserve-color),
-        html.theme-custom .custom-accent-bg {
-          background-color: var(--rc-custom-accent) !important;
-        }
-        html.theme-custom [class*="text-[#E43136]"]:not(.preserve-color),
-        html.theme-custom .custom-accent-text {
-          color: var(--rc-custom-accent) !important;
-        }
-        html.theme-custom [class*="border-[#E43136]"]:not(.preserve-color),
-        html.theme-custom [class*="border-l-[#E43136]"]:not(.preserve-color) {
-          border-color: var(--rc-custom-accent) !important;
-        }
-        html.theme-custom [class*="ring-[#E43136]"]:not(.preserve-color) {
-          --tw-ring-color: var(--rc-custom-accent) !important;
-        }
-      `;
-    } else {
-      // Light
-      if (styleTag) styleTag.innerHTML = '';
-    }
+    root.classList.toggle('dark', theme === 'dark');
+    document.getElementById('rc-custom-theme-styles')?.remove();
     localStorage.setItem('rc_theme', theme);
-  }, [theme, customTheme]);
+    localStorage.removeItem('rc_custom_theme');
+  }, [theme]);
 
   const bumpSync = useCallback(() => {
     setRealtimeSyncCount((c) => c + 1);
@@ -494,8 +419,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           followersCount: Math.max(0, Math.round(Number(mappedAndroid?.followersCount) || 0)),
           followingCount: Math.max(0, Math.round(Number(mappedAndroid?.followingCount) || 0)),
           booksCount: Math.max(0, Math.round(Number(mappedAndroid?.booksCount) || 0)),
-          streakDays: Math.max(0, Math.round(Number(mappedAndroid?.streakDays) || 1)),
-          points: Math.max(0, Math.round(Number(mappedAndroid?.points) || 150)),
+          streakDays: Math.max(0, Math.round(Number(mappedAndroid?.streakDays) || 0)),
+          points: Math.max(0, Math.round(Number(mappedAndroid?.points) || 0)),
           membershipPlan: mappedAndroid?.membershipPlan === 'premium' ? ('premium' as const) : ('free' as const),
           isOnline: true,
           showOnlineStatus: true,
@@ -510,8 +435,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const privSnap = await getDoc(privRef);
       if (!privSnap.exists()) {
         const savedLocalTheme = localStorage.getItem('rc_theme');
-        const initTheme: AppTheme =
-          savedLocalTheme === 'dark' || savedLocalTheme === 'custom' ? (savedLocalTheme as AppTheme) : 'light';
+        const initTheme: AppTheme = savedLocalTheme === 'dark' ? 'dark' : 'light';
         await setDoc(privRef, {
           uid: fbUser.uid,
           email: (fbUser.email || '').slice(0, 254),
@@ -530,22 +454,20 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const syncPrivateInfoDoc = useCallback(
     async (
       fbUser: FirebaseUser,
-      updates: Partial<Pick<UserPrivateInfo, 'email' | 'readingReminders' | 'notificationSettings' | 'theme' | 'customTheme' | 'subscriptionExpiry'>>
+      updates: Partial<Pick<UserPrivateInfo, 'email' | 'readingReminders' | 'notificationSettings' | 'theme' | 'subscriptionExpiry'>>
     ) => {
       await ensureUserProfile(fbUser);
       const privRef = doc(db, 'users', fbUser.uid, 'private', 'info');
       const privSnap = await getDoc(privRef);
       if (!privSnap.exists()) {
         const savedLocalTheme = localStorage.getItem('rc_theme');
-        const defaultTheme: AppTheme =
-          savedLocalTheme === 'dark' || savedLocalTheme === 'custom' ? (savedLocalTheme as AppTheme) : 'light';
+        const defaultTheme: AppTheme = savedLocalTheme === 'dark' ? 'dark' : 'light';
         await setDoc(privRef, {
           uid: fbUser.uid,
           email: (updates.email ?? fbUser.email ?? '').slice(0, 254),
           readingReminders: updates.readingReminders ?? true,
           notificationSettings: updates.notificationSettings ?? 'all',
           theme: updates.theme ?? defaultTheme,
-          customTheme: updates.customTheme,
           subscriptionExpiry: (updates.subscriptionExpiry ?? '').slice(0, 64),
           updatedAt: serverTimestamp(),
         });
@@ -557,7 +479,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (updates.readingReminders !== undefined) payload.readingReminders = updates.readingReminders;
         if (updates.notificationSettings !== undefined) payload.notificationSettings = updates.notificationSettings;
         if (updates.theme !== undefined) payload.theme = updates.theme;
-        if (updates.customTheme !== undefined) payload.customTheme = updates.customTheme;
         if (updates.subscriptionExpiry !== undefined) payload.subscriptionExpiry = updates.subscriptionExpiry.slice(0, 64);
         await updateDoc(privRef, payload);
       }
@@ -621,8 +542,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             followersCount: 0,
             followingCount: 0,
             booksCount: 0,
-            streakDays: 1,
-            points: 100,
+            streakDays: 0,
+            points: 0,
             membershipPlan: savedPlan,
             isOnline: true,
             showOnlineStatus: true,
@@ -648,13 +569,9 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (snap.exists()) {
           const data = snap.data();
           const savedLocalTheme = localStorage.getItem('rc_theme');
-          const validThemes: AppTheme[] = ['light', 'dark', 'custom'];
+          const validThemes: AppTheme[] = ['light', 'dark'];
           const resolvedTheme: AppTheme =
-            validThemes.includes(data.theme as AppTheme)
-              ? (data.theme as AppTheme)
-              : validThemes.includes(savedLocalTheme as AppTheme)
-              ? (savedLocalTheme as AppTheme)
-              : 'light';
+            data.theme === 'dark' || savedLocalTheme === 'dark' ? 'dark' : 'light';
           const info: UserPrivateInfo = {
             uid: String(data.uid || firebaseUser.uid),
             email: String(data.email || firebaseUser.email || ''),
@@ -668,9 +585,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             updatedAt: toIsoString(data.updatedAt),
           };
           setPrivateInfo(info);
-          if (validThemes.includes(data.theme as AppTheme)) {
-            setThemeState(data.theme as AppTheme);
-          }
+          setThemeState(resolvedTheme);
           bumpSync();
         }
       },
@@ -1483,9 +1398,9 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     firestoreBooks.forEach(mergeIntoMap);
     myAuthoredBooks.forEach(mergeIntoMap);
 
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    return Array.from(map.values())
+      .filter((book) => !DEMO_BOOK_IDS.has(book.id))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [rtdbBooks, defaultDbBooks, firestoreBooks, myAuthoredBooks]);
 
   // Self-heal any book in `db` that was previously mirrored with an empty coverURL when `defaultDb` or `rtdb` has the real coverURL
@@ -1539,34 +1454,13 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     defaultDbUsers.forEach(mergeUser);
     firestoreUsers.forEach(mergeUser);
     if (currentUser && !isSystemAccount(currentUser)) mergeUser(currentUser);
-    return Array.from(map.values());
+    return Array.from(map.values()).filter((user) => !DEMO_USER_IDS.has(user.uid));
   }, [rtdbUsers, defaultDbUsers, firestoreUsers, currentUser]);
 
   // Merge starter book/chapter/paragraph discussions, bridged reviews, defaultDb comments, Firestore comments, and optimistic local comments
   const postComments = useMemo(() => {
     const deletedSet = new Set(deletedCommentIds);
     const map = new Map<string, PostComment>();
-
-    const fallbackReaders = [
-      {
-        uid: 'user-aarav-mehta',
-        name: 'Aarav Mehta',
-        username: 'aarav_reads',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-      },
-      {
-        uid: 'user-priya-sharma',
-        name: 'Priya Sharma',
-        username: 'priya_writes',
-        avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80',
-      },
-      {
-        uid: 'user-kabir-verma',
-        name: 'Kabir Verma',
-        username: 'kabir_lit',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
-      },
-    ];
 
     // 1. Bridge existing book reviews into the book's main discussion thread so existing feedback is visible
     reviews.forEach((rev) => {
@@ -1588,109 +1482,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     });
 
-    // 2. Ensure every book has visible starter comments for Book Discussion, Chapter 1, and Paragraphs #1, #2, #3
-    books.forEach((b, bIdx) => {
-      const cleanBookFull = b.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
-      const cleanBookShort = b.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 36);
-      const bookPostId = `book_pub_${cleanBookFull}`.slice(0, 80);
-      const ch1PostId = `bk_${cleanBookShort}_ch_1`;
-      const p0PostId = `bk_${cleanBookShort}_c1_p0`;
-      const p1PostId = `bk_${cleanBookShort}_c1_p1`;
-      const p2PostId = `bk_${cleanBookShort}_c1_p2`;
-
-      const r1 = fallbackReaders[bIdx % fallbackReaders.length];
-      const r2 = fallbackReaders[(bIdx + 1) % fallbackReaders.length];
-      const r3 = fallbackReaders[(bIdx + 2) % fallbackReaders.length];
-      const baseTime = new Date(b.createdAt || Date.now()).getTime();
-
-      const seedEntries: PostComment[] = [
-        {
-          id: `seed_bk_${cleanBookShort}_1`,
-          postId: bookPostId,
-          userId: r1.uid,
-          userName: r1.name,
-          userUsername: r1.username,
-          userAvatar: r1.avatar,
-          text: `🔥 Just started reading "${b.title}" by ${b.authorName} — the atmosphere and storytelling are incredible! Highly recommend to everyone here.`,
-          createdAt: new Date(baseTime + 60000).toISOString(),
-          updatedAt: new Date(baseTime + 60000).toISOString(),
-        },
-        {
-          id: `seed_bk_${cleanBookShort}_2`,
-          postId: bookPostId,
-          userId: r2.uid,
-          userName: r2.name,
-          userUsername: r2.username,
-          userAvatar: r2.avatar,
-          text: `❤️ Added "${b.title}" to my favorites! Who else is reading this week? Let's discuss below!`,
-          createdAt: new Date(baseTime + 120000).toISOString(),
-          updatedAt: new Date(baseTime + 120000).toISOString(),
-        },
-        {
-          id: `seed_ch1_${cleanBookShort}_1`,
-          postId: ch1PostId,
-          userId: r2.uid,
-          userName: r2.name,
-          userUsername: r2.username,
-          userAvatar: r2.avatar,
-          text: `👏 Chapter 1 sets the stage so well! Every paragraph keeps you hooked from the very beginning.`,
-          createdAt: new Date(baseTime + 180000).toISOString(),
-          updatedAt: new Date(baseTime + 180000).toISOString(),
-        },
-        {
-          id: `seed_p0_${cleanBookShort}_1`,
-          postId: p0PostId,
-          userId: r1.uid,
-          userName: r1.name,
-          userUsername: r1.username,
-          userAvatar: r1.avatar,
-          text: `🔥 Goosebumps right from this opening paragraph! What a way to start "${b.title}"!`,
-          createdAt: new Date(baseTime + 210000).toISOString(),
-          updatedAt: new Date(baseTime + 210000).toISOString(),
-        },
-        {
-          id: `seed_p0_${cleanBookShort}_2`,
-          postId: p0PostId,
-          userId: r3.uid,
-          userName: r3.name,
-          userUsername: r3.username,
-          userAvatar: r3.avatar,
-          text: `❤️ Love this opening line so much — instant Wattpad & Kindle vibes!`,
-          createdAt: new Date(baseTime + 240000).toISOString(),
-          updatedAt: new Date(baseTime + 240000).toISOString(),
-        },
-        {
-          id: `seed_p1_${cleanBookShort}_1`,
-          postId: p1PostId,
-          userId: r2.uid,
-          userName: r2.name,
-          userUsername: r2.username,
-          userAvatar: r2.avatar,
-          text: `😭 The imagery and detail in this paragraph are next level!`,
-          createdAt: new Date(baseTime + 270000).toISOString(),
-          updatedAt: new Date(baseTime + 270000).toISOString(),
-        },
-        {
-          id: `seed_p2_${cleanBookShort}_1`,
-          postId: p2PostId,
-          userId: r3.uid,
-          userName: r3.name,
-          userUsername: r3.username,
-          userAvatar: r3.avatar,
-          text: `🤯 Wait what?! I can already tell this story is going to be unputdownable!`,
-          createdAt: new Date(baseTime + 300000).toISOString(),
-          updatedAt: new Date(baseTime + 300000).toISOString(),
-        },
-      ];
-
-      seedEntries.forEach((item) => {
-        if (!deletedSet.has(item.id)) {
-          map.set(item.id, item);
-        }
-      });
-    });
-
-    // 3. Merge real Firestore comments from `defaultDb`, `db`, and optimistic `localPostComments`
+    // Merge real Firestore comments from `defaultDb`, `db`, and optimistic `localPostComments`
     defaultDbPostComments.forEach((c) => {
       if (!deletedSet.has(c.id)) map.set(c.id, c);
     });
@@ -1701,9 +1493,9 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!deletedSet.has(c.id)) map.set(c.id, c);
     });
 
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
+    return Array.from(map.values())
+      .filter((comment) => !comment.id.startsWith('seed_'))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [
     books,
     reviews,
@@ -1751,6 +1543,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const safeAuthorUsername = (book.authorUsername || 'author').trim().slice(0, 80) || 'author';
         const safeCategory = (book.category || 'Fiction').trim().slice(0, 80) || 'Fiction';
         const safeLanguage = (book.language || 'English').trim().slice(0, 60) || 'English';
+        const safeReviewsCount = Math.max(0, Math.round(Number(book.reviewsCount) || 0));
+        const safeRating = safeReviewsCount > 0 && Number.isFinite(Number(book.rating))
+          ? Math.min(5, Math.max(0, Number(book.rating)))
+          : 0;
 
         const payload = {
           id: safeBookId,
@@ -1764,10 +1560,11 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           coverURL: book.coverURL && book.coverURL.length <= 5000 ? book.coverURL : '',
           fileURL: book.fileURL && book.fileURL.length <= 5000 ? book.fileURL : '',
           format: book.format === 'pdf' ? ('pdf' as const) : ('story' as const),
+          availableModes: book.availableModes,
           category: safeCategory,
           language: safeLanguage,
-          rating: Math.min(5, Math.max(0, Number.isFinite(Number(book.rating)) ? Number(book.rating) : 4.8)),
-          reviewsCount: Math.max(0, Math.round(Number(book.reviewsCount) || 0)),
+          rating: safeRating,
+          reviewsCount: safeReviewsCount,
           views: Math.max(0, Math.round(Number(book.views) || 0)),
           likes: Math.max(0, Math.round(Number(book.likes) || 0)),
           saves: Math.max(0, Math.round(Number(book.saves) || 0)),
@@ -1785,21 +1582,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           // Optional mirror to defaultDb
         }
 
-        const seedChaps = SEED_CHAPTERS[book.id] || [];
-        for (const ch of seedChaps) {
-          const safeChId = sanitizeId(ch.id, `${safeBookId}_ch_${ch.chapterNumber}`);
-          await setDoc(doc(db, 'books', safeBookId, 'chapters', safeChId), {
-            id: safeChId,
-            bookId: safeBookId,
-            authorId: validBookAuthorId,
-            bookStatus: 'published',
-            chapterNumber: Math.max(1, Math.round(Number(ch.chapterNumber) || 1)),
-            title: (ch.title || `Chapter ${ch.chapterNumber}`).trim().slice(0, 200) || 'Chapter 1',
-            content: (ch.content || '').slice(0, 100000),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }).catch(() => {});
-        }
       } else {
         const existingData = snap.data();
         if (
@@ -1817,40 +1599,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     },
     [firebaseUser, isAdmin, ensureUserProfile, sanitizeId]
   );
-
-  const seedInitialDataToFirebase = useCallback(async () => {
-    if (!firebaseUser) {
-      addToast('Please Sign In with Google first so Firebase allows writing to red-cover!', 'info');
-      return;
-    }
-    try {
-      if (isAdmin) {
-        for (const u of SEED_USERS) {
-          const uRef = doc(db, 'users', u.uid);
-          const uSnap = await getDoc(uRef);
-          if (!uSnap.exists()) {
-            await setDoc(uRef, {
-              ...u,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-          }
-        }
-      }
-      // Also mirror any defaultDb books into `db`
-      for (const b of defaultDbBooks) {
-        await ensureBookInFirestore(b);
-      }
-      // And write the starter catalog into real Firestore documents if needed
-      for (const b of SEED_BOOKS) {
-        await ensureBookInFirestore(b);
-      }
-      addToast('Real books & chapters written to red-cover Firestore database!', 'success');
-    } catch (error) {
-      addToast('Could not write to Firestore. Ensure you are signed in with a verified email.', 'error');
-      console.error(error);
-    }
-  }, [firebaseUser, isAdmin, defaultDbBooks, ensureBookInFirestore, addToast]);
 
   const loginWithGoogle = useCallback(async () => {
     try {
@@ -1893,8 +1641,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           followersCount: 0,
           followingCount: 0,
           booksCount: 0,
-          streakDays: 1,
-          points: 100,
+          streakDays: 0,
+          points: 0,
           membershipPlan: 'free',
           isOnline: true,
           showOnlineStatus: true,
@@ -1934,19 +1682,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const setTheme = useCallback(
     async (newTheme: AppTheme) => {
-      const isMember = currentUser?.membershipPlan === 'premium';
-      if (!isMember && newTheme === 'custom') {
-        setCurrentUser((prev) => (prev ? { ...prev, membershipPlan: 'premium' } : prev));
-        setFirestoreUsers((prev) =>
-          prev.map((u) =>
-            u.uid === (firebaseUser?.uid || currentUser?.uid) ? { ...u, membershipPlan: 'premium' } : u
-          )
-        );
-        try {
-          localStorage.setItem('rc_member_plan', 'premium');
-        } catch {}
-      }
-
       setThemeState(newTheme);
       try {
         localStorage.setItem('rc_theme', newTheme);
@@ -1962,40 +1697,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
     },
-    [currentUser, firebaseUser, syncPrivateInfoDoc, addToast]
-  );
-
-  const setCustomTheme = useCallback(
-    async (config: CustomThemeConfig) => {
-      setCustomThemeState(config);
-      setThemeState('custom');
-      try {
-        localStorage.setItem('rc_custom_theme', JSON.stringify(config));
-        localStorage.setItem('rc_theme', 'custom');
-      } catch {}
-
-      if (config.nameColor && currentUser) {
-        setCurrentUser((prev) => (prev ? { ...prev, nameColor: config.nameColor } : prev));
-        if (firebaseUser) {
-          updateDoc(doc(db, 'users', firebaseUser.uid), {
-            nameColor: config.nameColor,
-          }).catch(() => {});
-        }
-      }
-
-      if (firebaseUser) {
-        try {
-          await syncPrivateInfoDoc(firebaseUser, {
-            theme: 'custom',
-            customTheme: config,
-          });
-        } catch (err) {
-          console.warn('Sync custom theme warning:', err);
-        }
-      }
-      addToast('🎨 Custom Theme Applied & Saved!', 'success');
-    },
-    [firebaseUser, currentUser, syncPrivateInfoDoc, addToast]
+    [firebaseUser, syncPrivateInfoDoc, addToast]
   );
 
   const addRecentSearch = useCallback((term: string) => {
@@ -2398,10 +2100,13 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         } catch {}
       }
-      if (SEED_CHAPTERS[bookId]) {
-        return SEED_CHAPTERS[bookId];
-      }
       const matchedBook = books.find((b) => b.id === bookId);
+      if (
+        matchedBook?.availableModes?.length &&
+        !matchedBook.availableModes.some((mode) => mode !== 'pdf')
+      ) {
+        return [];
+      }
       if (
         matchedBook?.fileURL &&
         !matchedBook.fileURL.startsWith('https://redcover.app/pdf-text-edition/')
@@ -2549,8 +2254,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             await setDoc(doc(defaultDb, 'reviews', reviewId), revPayload, { merge: true });
           } catch {}
 
-          const newCount = Math.max(0, Math.round(Number(book.reviewsCount) || 0)) + 1;
-          const newAvg = Number(((book.rating * book.reviewsCount + cleanRating) / newCount).toFixed(1));
+          const previousCount = Math.max(0, Math.round(Number(book.reviewsCount) || 0));
+          const previousRating = previousCount > 0 ? Number(book.rating) || 0 : 0;
+          const newCount = previousCount + 1;
+          const newAvg = Number(((previousRating * previousCount + cleanRating) / newCount).toFixed(1));
           await updateDoc(doc(db, 'books', safeBookId), {
             reviewsCount: newCount,
             rating: Math.min(5, Math.max(0, newAvg)),
@@ -2608,6 +2315,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       try {
         const snap = await getDoc(bookRef);
         const totalChaps = Math.max(1, chaptersInput.length);
+        const supportsText = bookInput.availableModes?.some((mode) => mode !== 'pdf') ?? true;
+        const persistedChapterCount = supportsText ? totalChaps : 0;
         const safeTitle = (bookInput.title || 'Untitled Book').trim().slice(0, 200) || 'Untitled Book';
         const safeDesc = (bookInput.description || '').trim().slice(0, 5000);
         const safeShortDesc = (bookInput.shortDescription || safeDesc || safeTitle).trim().slice(0, 400);
@@ -2628,9 +2337,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           coverURL: bookInput.coverURL && bookInput.coverURL.length <= 5000 ? bookInput.coverURL : '',
           fileURL: bookInput.fileURL && bookInput.fileURL.length <= 5000 ? bookInput.fileURL : '',
           format: bookInput.format === 'pdf' ? ('pdf' as const) : ('story' as const),
+          availableModes: bookInput.availableModes,
           category: safeCategory,
           language: safeLanguage,
-          chaptersCount: totalChaps,
+          chaptersCount: persistedChapterCount,
           status: bookInput.status,
           updatedAt: serverTimestamp(),
         };
@@ -2638,7 +2348,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (!snap.exists()) {
           const fullCreatePayload = {
             ...basePayload,
-            rating: 5.0,
+            rating: 0,
             reviewsCount: 0,
             views: 1,
             likes: 0,
@@ -2653,7 +2363,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
           await updateDoc(doc(db, 'users', firebaseUser.uid), {
             booksCount: Math.max(0, Math.round(Number(currentUser.booksCount) || 0)) + 1,
-            points: Math.max(0, Math.round(Number(currentUser.points) || 0)) + 50,
             updatedAt: serverTimestamp(),
           }).catch(() => {});
         } else {
@@ -2741,7 +2450,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 bookAuthor: safeAuthorName,
                 bookCover: bookInput.coverURL && bookInput.coverURL.length <= 5000 ? bookInput.coverURL : '',
                 bookCategory: safeCategory,
-                rating: 5,
+                rating: 0,
                 progressPercentage: 0,
                 chapterNumber: totalChaps,
                 likesCount: 0,
@@ -2843,8 +2552,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           followersCount: 0,
           followingCount: 0,
           booksCount: 0,
-          streakDays: 1,
-          points: 100,
+          streakDays: 0,
+          points: 0,
           membershipPlan: 'free',
           isOnline: true,
           showOnlineStatus: true,
@@ -2997,8 +2706,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           followersCount: Math.max(0, Math.round(Number(targetUser.followersCount) || 0)),
           followingCount: Math.max(0, Math.round(Number(targetUser.followingCount) || 0)),
           booksCount: Math.max(0, Math.round(Number(targetUser.booksCount) || 0)),
-          streakDays: Math.max(0, Math.round(Number(targetUser.streakDays) || 1)),
-          points: Math.max(0, Math.round(Number(targetUser.points) || 100)),
+          streakDays: Math.max(0, Math.round(Number(targetUser.streakDays) || 0)),
+          points: Math.max(0, Math.round(Number(targetUser.points) || 0)),
           membershipPlan: targetUser.membershipPlan === 'premium' ? 'premium' : 'free',
           isOnline: Boolean(targetUser.isOnline ?? true),
           showOnlineStatus: Boolean(targetUser.showOnlineStatus ?? true),
@@ -3107,9 +2816,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       try {
         await ensureUserProfile(firebaseUser);
         await ensureTargetUserInFirestore(targetUser);
-        const isDemoPersona = targetUser.uid.startsWith('u_') || SEED_USERS.some((s) => s.uid === targetUser.uid);
-        const initialStatus: FriendshipStatus = isDemoPersona ? 'accepted' : 'pending';
-
         await setDoc(doc(db, 'friendships', friendshipId), {
           id: friendshipId,
           requesterId: firebaseUser.uid,
@@ -3118,32 +2824,26 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           receiverName: (targetUser.displayName || 'Reader').slice(0, 100),
           requesterAvatar: currentUser.photoURL && currentUser.photoURL.length <= 5000 ? currentUser.photoURL : '',
           receiverAvatar: targetUser.photoURL && targetUser.photoURL.length <= 5000 ? targetUser.photoURL : '',
-          status: initialStatus,
+          status: 'pending',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
 
-        if (isDemoPersona) {
-          addToast(`Connected with ${targetUser.displayName}! You can now chat.`, 'success');
-        } else {
-          // Notify recipient of new incoming friend request
-          const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-          await setDoc(doc(db, 'notifications', notifId), {
-            id: notifId,
-            recipientId: safeTargetUid,
-            actorId: firebaseUser.uid,
-            actorName: (currentUser.displayName || 'Reader').slice(0, 100),
-            category: 'social',
-            title: 'Friend Request',
-            body: `${currentUser.displayName} sent you a friend request.`,
-            link: '/hub/social',
-            read: false,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }).catch(() => {});
-
-          addToast(`Friend request sent to ${targetUser.displayName}.`, 'success');
-        }
+        const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        await setDoc(doc(db, 'notifications', notifId), {
+          id: notifId,
+          recipientId: safeTargetUid,
+          actorId: firebaseUser.uid,
+          actorName: (currentUser.displayName || 'Reader').slice(0, 100),
+          category: 'social',
+          title: 'Friend Request',
+          body: `${currentUser.displayName} sent you a friend request.`,
+          link: '/hub/social',
+          read: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+        addToast(`Friend request sent to ${targetUser.displayName}.`, 'success');
       } catch (error) {
         addToast('Could not send friend request.', 'error');
         handleFirestoreError(error, OperationType.CREATE, `friendships/${friendshipId}`);
@@ -3397,22 +3097,30 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         : '';
 
       // 2. Instantly clear unread count in local state for this chat and any other chat with this partner
-      setChats((prev) =>
-        prev.map((c) => {
+      setChats((previousChats) => {
+        let changed = false;
+        const updatedChats = previousChats.map((chat) => {
           const isMatch =
-            c.id === chatId ||
+            chat.id === chatId ||
             (partnerUid &&
-              ((c.participantA === uid && c.participantB === partnerUid) ||
-                (c.participantB === uid && c.participantA === partnerUid)));
-          if (!isMatch) return c;
-          const isA = c.participantA === uid;
+              ((chat.participantA === uid && chat.participantB === partnerUid) ||
+                (chat.participantB === uid && chat.participantA === partnerUid)));
+          if (!isMatch) return chat;
+          const isParticipantA = chat.participantA === uid;
+          const unreadCountA = isParticipantA ? 0 : chat.unreadCountA;
+          const unreadCountB = isParticipantA ? chat.unreadCountB : 0;
+          if (chat.unreadCountA === unreadCountA && chat.unreadCountB === unreadCountB) {
+            return chat;
+          }
+          changed = true;
           return {
-            ...c,
-            unreadCountA: isA ? 0 : c.unreadCountA,
-            unreadCountB: isA ? c.unreadCountB : 0,
+            ...chat,
+            unreadCountA,
+            unreadCountB,
           };
-        })
-      );
+        });
+        return changed ? updatedChats : previousChats;
+      });
 
       // 3. Clear in RTDB for this chatId and candidate pair IDs
       try {
@@ -4724,12 +4432,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     sourceStats,
     toasts,
     theme,
-    customTheme,
     recentSearches,
     addToast,
     dismissToast,
     setTheme,
-    setCustomTheme,
     addRecentSearch,
     clearRecentSearches,
     loginWithGoogle,
@@ -4737,7 +4443,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     registerWithEmail,
     sendResetPassword,
     logout,
-    seedInitialDataToFirebase,
     toggleSaveBook,
     toggleLikeBook,
     incrementBookView,

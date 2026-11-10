@@ -770,7 +770,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                             likes: 0,
                             views: 0,
                             shares: 0,
-                            rating: 5,
+                            rating: 0,
                             reviewsCount: 0,
                             createdAt: '',
                             updatedAt: '',

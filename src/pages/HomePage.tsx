@@ -6,7 +6,7 @@ import {
   Star,
   UserPlus,
   UserCheck,
-  Award,
+  BookOpen,
   Heart,
   BookMarked,
 } from 'lucide-react';
@@ -51,6 +51,7 @@ export const HomePage: React.FC = () => {
     reviews,
     booksLoading,
     savedBooks,
+    likedBooks,
     readingProgress,
     publicReadingProgress,
     socialPosts,
@@ -204,7 +205,7 @@ export const HomePage: React.FC = () => {
         bookAuthor: post.bookAuthor || matchedBook?.authorName || '',
         bookCover: matchedBook?.coverURL || post.bookCover || '',
         bookCategory: post.bookCategory || matchedBook?.category || '',
-        rating: post.rating || matchedBook?.rating || 5,
+        rating: post.rating ?? matchedBook?.rating ?? 0,
         progressPercentage: post.progressPercentage || 0,
         chapterNumber: post.chapterNumber || 0,
         totalChapters: matchedBook?.chaptersCount || 1,
@@ -241,7 +242,7 @@ export const HomePage: React.FC = () => {
         bookAuthor: matchedBook?.authorName || '',
         bookCover: matchedBook?.coverURL || '',
         bookCategory: matchedBook?.category || 'Fiction',
-        rating: rev.rating || 5,
+        rating: rev.rating ?? 0,
         progressPercentage: 0,
         chapterNumber: 0,
         totalChapters: matchedBook?.chaptersCount || 1,
@@ -456,8 +457,8 @@ export const HomePage: React.FC = () => {
           followersCount: 0,
           followingCount: 0,
           booksCount: 1,
-          streakDays: 1,
-          points: 100,
+          streakDays: 0,
+          points: 0,
           membershipPlan: 'free',
           isOnline: true,
           showOnlineStatus: true,
@@ -490,9 +491,28 @@ export const HomePage: React.FC = () => {
       completed,
       inProgress,
       saved: savedBooks.length,
-      streakDays: currentUser?.streakDays || 0,
     };
   }, [readingProgress, savedBooks.length, currentUser]);
+
+  const myRecentReadBooks = useMemo(() => {
+    if (!firebaseUser) return [];
+    return readingProgress
+      .filter((progress) => progress.userId === firebaseUser.uid && progress.percentage > 0)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .map((progress) => books.find((book) => book.id === progress.bookId))
+      .filter((book): book is Book => Boolean(book))
+      .slice(0, 5);
+  }, [books, firebaseUser?.uid, readingProgress]);
+
+  const myLikedBooks = useMemo(() => {
+    if (!firebaseUser) return [];
+    return likedBooks
+      .filter((like) => like.userId === firebaseUser.uid)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map((like) => books.find((book) => book.id === like.bookId))
+      .filter((book): book is Book => Boolean(book))
+      .slice(0, 5);
+  }, [books, firebaseUser?.uid, likedBooks]);
 
   // If visitor is logged out, render the professional Redcover Public Landing Page
   if (!firebaseUser) {
@@ -505,6 +525,89 @@ export const HomePage: React.FC = () => {
       {/* INSTAGRAM-STYLE MAIN BOOKS & SOCIAL FEED COLUMN                   */}
       {/* ================================================================= */}
       <div className="lg:col-span-8 space-y-3 sm:space-y-4 min-w-0">
+        {firebaseUser && (
+          <>
+            <section
+              aria-label="Recently read books"
+              className="rounded-xl border border-[#DDDDE3] bg-white p-3 dark:border-[#2C2C35] dark:bg-[#16161A] sm:rounded-2xl sm:p-4"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold text-[#202020] dark:text-[#F4F4F6]">Recently Read</h2>
+                <Link to="/hub/history" className="shrink-0 text-xs font-semibold text-[#E43136] hover:underline">
+                  More
+                </Link>
+              </div>
+              {myRecentReadBooks.length > 0 ? (
+                <div className="flex snap-x gap-3 overflow-x-auto pb-1 no-scrollbar">
+                  {myRecentReadBooks.map((book) => (
+                    <Link
+                      key={book.id}
+                      to={`/read/${book.id}`}
+                      className="w-28 shrink-0 snap-start sm:w-32"
+                    >
+                      <div className="mb-2 aspect-[3/4] overflow-hidden rounded-lg">
+                        <BookCover book={book} size="sm" className="h-full w-full" />
+                      </div>
+                      <p className="truncate text-xs font-semibold text-[#202020] dark:text-[#F4F4F6]">
+                        {book.title}
+                      </p>
+                      <p className="truncate text-[11px] text-[#777780] dark:text-[#9E9EA9]">
+                        {book.authorName}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-4 text-center text-xs text-[#777780] dark:text-[#9E9EA9]">
+                  Books you start reading will appear here.
+                </p>
+              )}
+            </section>
+
+            <section
+              aria-label="Liked books"
+              className="rounded-xl border border-[#DDDDE3] bg-white p-3 dark:border-[#2C2C35] dark:bg-[#16161A] sm:rounded-2xl sm:p-4"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold text-[#202020] dark:text-[#F4F4F6]">Liked Books</h2>
+                {currentUser && (
+                  <Link
+                    to={`/profile/${currentUser.uid}?tab=likes`}
+                    className="shrink-0 text-xs font-semibold text-[#E43136] hover:underline"
+                  >
+                    More
+                  </Link>
+                )}
+              </div>
+              {myLikedBooks.length > 0 ? (
+                <div className="flex snap-x gap-3 overflow-x-auto pb-1 no-scrollbar">
+                  {myLikedBooks.map((book) => (
+                    <Link
+                      key={book.id}
+                      to={`/book/${book.id}`}
+                      className="w-28 shrink-0 snap-start sm:w-32"
+                    >
+                      <div className="mb-2 aspect-[3/4] overflow-hidden rounded-lg">
+                        <BookCover book={book} size="sm" className="h-full w-full" />
+                      </div>
+                      <p className="truncate text-xs font-semibold text-[#202020] dark:text-[#F4F4F6]">
+                        {book.title}
+                      </p>
+                      <p className="truncate text-[11px] text-[#777780] dark:text-[#9E9EA9]">
+                        {book.authorName}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-4 text-center text-xs text-[#777780] dark:text-[#9E9EA9]">
+                  Books you like will appear here.
+                </p>
+              )}
+            </section>
+          </>
+        )}
+
         {/* Feed Filter Tabs: For You | Following | Latest | Trending */}
         <div className="bg-white dark:bg-[#16161A] rounded-xl sm:rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] p-1 sm:p-1.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
@@ -892,7 +995,7 @@ export const HomePage: React.FC = () => {
             >
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-[#FFF3F4] dark:bg-[#2D1619] text-[#E43136] flex items-center justify-center shrink-0">
-                  <Award className="w-4 h-4" />
+                  <BookOpen className="w-4 h-4" />
                 </div>
                 <div>
                   <h2 className="font-display text-sm font-bold text-[#202020] dark:text-[#F4F4F6]">
@@ -904,7 +1007,7 @@ export const HomePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 <div className="p-3 rounded-xl bg-[#FAFAFB] dark:bg-[#0F0F12] border border-[#F1F1F4] dark:border-[#2C2C35]">
                   <span className="block text-[11px] text-[#777780] dark:text-[#9E9EA9]">
                     Completed
@@ -919,14 +1022,6 @@ export const HomePage: React.FC = () => {
                   </span>
                   <span className="font-display text-lg font-bold text-[#202020] dark:text-[#F4F4F6] tabular-nums">
                     {myReadingStats.inProgress}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-[#FAFAFB] dark:bg-[#0F0F12] border border-[#F1F1F4] dark:border-[#2C2C35]">
-                  <span className="block text-[11px] text-[#777780] dark:text-[#9E9EA9]">
-                    Streak
-                  </span>
-                  <span className="font-display text-lg font-bold text-[#E43136] tabular-nums">
-                    {myReadingStats.streakDays}d
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-[#FAFAFB] dark:bg-[#0F0F12] border border-[#F1F1F4] dark:border-[#2C2C35]">

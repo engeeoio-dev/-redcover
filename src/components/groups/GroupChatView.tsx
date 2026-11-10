@@ -161,7 +161,7 @@ export const GroupChatView: React.FC<GroupChatViewProps> = ({
       {/* Main Body */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Messages Stream */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col justify-between">
+        <div className="flex-1 min-w-0 overflow-y-auto px-4 py-4 flex flex-col justify-between">
           <div className="space-y-3">
             {/* Fun Group Reading Spotlight & Discussion Starters */}
             <div className="mb-3 px-3 py-2 rounded-xl bg-gradient-to-r from-[#FFF3F4] to-[#FFF8F8] dark:from-[#E43136]/10 dark:to-[#1A1A24] border border-[#E43136]/20 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
@@ -382,9 +382,18 @@ export const GroupChatView: React.FC<GroupChatViewProps> = ({
           </div>
         </div>
 
+        {infoOpen && (
+          <button
+            type="button"
+            aria-label="Close group information"
+            onClick={() => setInfoOpen(false)}
+            className="absolute inset-0 z-20 bg-black/35 lg:hidden"
+          />
+        )}
+
         {/* Group Info Drawer */}
         {infoOpen && (
-          <div className="w-80 shrink-0 border-l border-[#E5E5EB] dark:border-[#22222A] bg-white dark:bg-[#121217] p-5 overflow-y-auto animate-in slide-in-from-right duration-200">
+          <div className="absolute inset-y-0 right-0 z-30 w-80 max-w-[90vw] shrink-0 border-l border-[#E5E5EB] dark:border-[#22222A] bg-white dark:bg-[#121217] p-5 overflow-y-auto animate-in slide-in-from-right duration-200 lg:static lg:z-auto lg:w-80 lg:max-w-none">
             <div className="text-center pb-4 border-b border-[#E5E5EB] dark:border-[#22222A]">
               <div className="w-20 h-20 rounded-2xl bg-[#E43136]/10 text-[#E43136] flex items-center justify-center font-bold text-xl mx-auto mb-3 overflow-hidden shadow-sm">
                 {group.avatarURL ? (

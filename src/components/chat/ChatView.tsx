@@ -327,7 +327,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Main Body (Messages + Context Drawer) */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative" style={getWallpaperStyle()}>
         {/* Messages Scroll Area */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col justify-between">
+        <div className="flex-1 min-w-0 min-h-0 overflow-y-auto px-4 py-4 flex flex-col justify-between">
           {/* Messages Stream */}
           <div className="space-y-1">
             {messages.length === 0 ? (
@@ -418,18 +418,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <span>Status</span>
                 <span className="font-medium text-[#202020] dark:text-white">
                   {presenceStatus.text || 'Offline'}
-                </span>
-              </div>
-              <div className="flex justify-between text-[#6E6E77] dark:text-[#9E9EA8]">
-                <span>Streak</span>
-                <span className="font-medium text-[#202020] dark:text-white">
-                  🔥 {otherUser.streakDays} days
-                </span>
-              </div>
-              <div className="flex justify-between text-[#6E6E77] dark:text-[#9E9EA8]">
-                <span>Points</span>
-                <span className="font-medium text-[#202020] dark:text-white">
-                  ⭐ {otherUser.points}
                 </span>
               </div>
               <div className="flex justify-between text-[#6E6E77] dark:text-[#9E9EA8]">

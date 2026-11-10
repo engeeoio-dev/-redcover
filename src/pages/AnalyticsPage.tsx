@@ -25,7 +25,6 @@ import { Book } from '../models/types';
 
 export const AnalyticsPage: React.FC = () => {
   const { currentUser, books, readingProgress, savedBooks, likedBooks, reviews } = useRedcover();
-  const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('30d');
   const [selectedBookId, setSelectedBookId] = useState<string>('all');
 
   const isMember = currentUser?.membershipPlan === 'premium';
@@ -33,15 +32,13 @@ export const AnalyticsPage: React.FC = () => {
   // User's published / authored books
   const myBooks = useMemo(() => {
     if (!currentUser) return [];
-    const authored = books.filter((b) => b.authorId === currentUser.uid);
-    // If user hasn't authored books yet, include seed books for rich demonstration
-    return authored.length > 0 ? authored : books.slice(0, 5);
+    return books.filter((book) => book.authorId === currentUser.uid);
   }, [books, currentUser]);
 
   const activeBook = useMemo(() => {
     if (selectedBookId === 'all') return null;
-    return books.find((b) => b.id === selectedBookId) || null;
-  }, [books, selectedBookId]);
+    return myBooks.find((book) => book.id === selectedBookId) || null;
+  }, [myBooks, selectedBookId]);
 
   // Aggregate account-level statistics
   const accountStats = useMemo(() => {
@@ -49,15 +46,13 @@ export const AnalyticsPage: React.FC = () => {
     const totalLikes = myBooks.reduce((acc, b) => acc + (b.likes || 0), 0);
     const totalSaves = myBooks.reduce((acc, b) => acc + (b.saves || 0), 0);
     const totalReviews = myBooks.reduce((acc, b) => acc + (b.reviewsCount || 0), 0);
-    const avgRating =
-      myBooks.length > 0
-        ? (myBooks.reduce((acc, b) => acc + (b.rating || 4.8), 0) / myBooks.length).toFixed(1)
-        : '4.9';
-
-    // Reading hours estimate (views * 18 mins / 60)
-    const totalHours = Math.round((totalViews * 16) / 60);
-    const uniqueReaders = Math.round(totalViews * 0.72);
-    const avgCompletion = 76; // 76%
+    const totalRatingCount = myBooks.reduce((acc, book) => acc + (book.reviewsCount || 0), 0);
+    const avgRating = totalRatingCount
+      ? (
+          myBooks.reduce((acc, book) => acc + (book.rating || 0) * (book.reviewsCount || 0), 0) /
+          totalRatingCount
+        ).toFixed(1)
+      : '—';
 
     return {
       totalViews,
@@ -65,34 +60,25 @@ export const AnalyticsPage: React.FC = () => {
       totalSaves,
       totalReviews,
       avgRating,
-      totalHours,
-      uniqueReaders,
-      avgCompletion,
     };
   }, [myBooks]);
 
-  // Chart data simulation based on time range
   const trendData = useMemo(() => {
-    if (timeRange === '7d') {
-      return [
-        { label: 'Mon', views: 420, reads: 310 },
-        { label: 'Tue', views: 580, reads: 440 },
-        { label: 'Wed', views: 510, reads: 390 },
-        { label: 'Thu', views: 720, reads: 590 },
-        { label: 'Fri', views: 890, reads: 710 },
-        { label: 'Sat', views: 1150, reads: 940 },
-        { label: 'Sun', views: 1040, reads: 880 },
-      ];
-    }
-    return [
-      { label: 'Week 1', views: 2840, reads: 2150 },
-      { label: 'Week 2', views: 3410, reads: 2790 },
-      { label: 'Week 3', views: 4120, reads: 3340 },
-      { label: 'Week 4', views: 4890, reads: 4020 },
-    ];
-  }, [timeRange]);
+    const selectedBooks = selectedBookId === 'all'
+      ? myBooks
+      : myBooks.filter((book) => book.id === selectedBookId);
+    return [...selectedBooks]
+      .sort((a, b) => b.views - a.views)
+      .slice(0, 7)
+      .map((book) => ({
+        id: book.id,
+        label: book.title,
+        views: book.views || 0,
+        reviews: book.reviewsCount || 0,
+      }));
+  }, [myBooks, selectedBookId]);
 
-  const maxVal = Math.max(...trendData.map((d) => d.views), 1);
+  const maxVal = Math.max(...trendData.flatMap((book) => [book.views, book.reviews]), 1);
 
   if (!currentUser) {
     return (
@@ -123,26 +109,6 @@ export const AnalyticsPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Time range switcher */}
-        <div className="inline-flex rounded-xl p-1 bg-[#F1F1F4] dark:bg-[#16161C] border border-[#DDDDE3] dark:border-[#2C2C35] text-xs font-semibold self-start sm:self-auto">
-          {[
-            { id: '7d', label: '7 Days' },
-            { id: '30d', label: '30 Days' },
-            { id: 'all', label: 'All Time' },
-          ].map((r) => (
-            <button
-              key={r.id}
-              onClick={() => setTimeRange(r.id as any)}
-              className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                timeRange === r.id
-                  ? 'bg-white dark:bg-[#22222C] text-[#E43136] shadow-xs'
-                  : 'text-[#6E6E77] hover:text-[#202020] dark:hover:text-white'
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
       </div>
 
 
@@ -156,63 +122,61 @@ export const AnalyticsPage: React.FC = () => {
           <div className="text-xl sm:text-2xl font-bold font-mono tracking-tight text-[#202020] dark:text-white">
             {accountStats.totalViews.toLocaleString()}
           </div>
-          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-            <ArrowUpRight className="w-3 h-3" />
-            <span>+18.4% from last period</span>
+          <div className="text-[11px] text-[#6E6E77] dark:text-[#9E9EA9]">
+            Across your authored books
           </div>
         </div>
 
         <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#16161A] border border-[#DDDDE3] dark:border-[#2C2C35] shadow-xs space-y-1">
           <div className="flex items-center justify-between text-[#6E6E77] dark:text-[#9E9EA8] text-xs">
-            <span>Unique Readers</span>
-            <Users className="w-4 h-4 text-blue-500" />
+            <span>Book Likes</span>
+            <Heart className="w-4 h-4 text-[#E43136]" />
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono tracking-tight text-[#202020] dark:text-white">
-            {accountStats.uniqueReaders.toLocaleString()}
+            {accountStats.totalLikes.toLocaleString()}
           </div>
-          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-            <ArrowUpRight className="w-3 h-3" />
-            <span>+12.6% active reader growth</span>
+          <div className="text-[11px] text-[#6E6E77] dark:text-[#9E9EA9]">
+            Total likes on your books
           </div>
         </div>
 
         <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#16161A] border border-[#DDDDE3] dark:border-[#2C2C35] shadow-xs space-y-1">
           <div className="flex items-center justify-between text-[#6E6E77] dark:text-[#9E9EA8] text-xs">
-            <span>Total Reading Hours</span>
-            <Clock className="w-4 h-4 text-amber-500" />
+            <span>Book Saves</span>
+            <Bookmark className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono tracking-tight text-[#202020] dark:text-white">
-            {accountStats.totalHours.toLocaleString()} hrs
+            {accountStats.totalSaves.toLocaleString()}
           </div>
           <div className="text-[11px] text-[#6E6E77] dark:text-[#9E9EA8]">
-            Avg. 18.2 mins per session
+            Total saves on your books
           </div>
         </div>
 
         <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#16161A] border border-[#DDDDE3] dark:border-[#2C2C35] shadow-xs space-y-1">
           <div className="flex items-center justify-between text-[#6E6E77] dark:text-[#9E9EA8] text-xs">
-            <span>Avg. Completion Rate</span>
-            <Award className="w-4 h-4 text-purple-500" />
+            <span>Reviews</span>
+            <MessageSquare className="w-4 h-4 text-[#E43136]" />
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono tracking-tight text-[#202020] dark:text-white">
-            {accountStats.avgCompletion}%
+            {accountStats.totalReviews.toLocaleString()}
           </div>
-          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-            Top 10% reader retention tier
+          <div className="text-[11px] text-[#6E6E77] dark:text-[#9E9EA9]">
+            Average rating: {accountStats.avgRating}/5
           </div>
         </div>
       </div>
 
-      {/* Visual Chart: Reading Trends */}
+      {/* Visual Chart: Actual Book Views and Reviews */}
       <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#16161A] border border-[#DDDDE3] dark:border-[#2C2C35] shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-sm sm:text-base text-[#202020] dark:text-white flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-[#E43136]" />
-              <span>Reader Engagement & View Velocity</span>
+              <span>Book Views & Reviews</span>
             </h3>
             <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA9]">
-              Compare total impressions against completed chapter read-throughs.
+              Current totals for your highest-viewed books.
             </p>
           </div>
           <div className="flex items-center gap-3 text-xs font-medium">
@@ -222,18 +186,19 @@ export const AnalyticsPage: React.FC = () => {
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-sm bg-[#FB8500]" />
-              <span>Completed Reads</span>
+              <span>Reviews</span>
             </span>
           </div>
         </div>
 
         {/* CSS Bar Chart */}
+        {trendData.length > 0 ? (
         <div className="h-56 flex items-end gap-3 sm:gap-6 pt-6 pb-2 border-b border-[#F1F1F4] dark:border-[#2C2C35]">
-          {trendData.map((d, i) => {
+          {trendData.map((d) => {
             const viewHeight = Math.round((d.views / maxVal) * 100);
-            const readHeight = Math.round((d.reads / maxVal) * 100);
+            const reviewHeight = Math.round((d.reviews / maxVal) * 100);
             return (
-              <div key={i} className="flex-1 flex flex-col items-center h-full justify-end group">
+              <div key={d.id} className="flex-1 min-w-0 flex flex-col items-center h-full justify-end group">
                 <div className="w-full max-w-[48px] flex items-end gap-1.5 h-full justify-center">
                   {/* View Bar */}
                   <div
@@ -246,21 +211,26 @@ export const AnalyticsPage: React.FC = () => {
                   </div>
                   {/* Reads Bar */}
                   <div
-                    style={{ height: `${readHeight}%` }}
+                    style={{ height: `${reviewHeight}%` }}
                     className="w-1/2 bg-[#FB8500] rounded-t-md transition-all group-hover:brightness-110 relative"
                   >
                     <span className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] font-mono bg-black text-white px-1 rounded transition-opacity pointer-events-none">
-                      {d.reads}
+                      {d.reviews}
                     </span>
                   </div>
                 </div>
                 <span className="text-[10px] sm:text-xs text-[#777780] dark:text-[#9E9EA9] mt-2 font-medium">
-                  {d.label}
+                  <span className="max-w-full truncate">{d.label}</span>
                 </span>
               </div>
             );
           })}
         </div>
+        ) : (
+          <p className="py-10 text-center text-xs text-[#777780] dark:text-[#9E9EA9]">
+            No book analytics yet. Publish a book to see its views and reviews here.
+          </p>
+        )}
       </div>
 
       {/* Per-Book Performance Breakdown */}
@@ -272,7 +242,7 @@ export const AnalyticsPage: React.FC = () => {
               <span>Per-Book Granular Analytics</span>
             </h2>
             <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA9]">
-              Detailed performance metrics, reader completion drop-offs, and unique RedCode data for each book.
+              Views, likes, saves, and reviews for each authored book.
             </p>
           </div>
 
@@ -293,11 +263,8 @@ export const AnalyticsPage: React.FC = () => {
 
         {/* Per-Book Grid Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(activeBook ? [activeBook] : myBooks).map((book) => {
-            const bookRetention = Math.min(94, Math.max(62, 70 + (book.reviewsCount % 20)));
-            const chapterDropOff = [100, 84, bookRetention];
-
-            return (
+          {(activeBook ? [activeBook] : myBooks).length > 0 ? (
+            (activeBook ? [activeBook] : myBooks).map((book) => (
               <div
                 key={book.id}
                 className="p-5 rounded-2xl bg-white dark:bg-[#16161A] border border-[#DDDDE3] dark:border-[#2C2C35] shadow-xs flex flex-col justify-between space-y-4 hover:border-[#E43136]/30 transition-all"
@@ -344,30 +311,6 @@ export const AnalyticsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Chapter Retention Progression */}
-                <div className="p-3 rounded-xl bg-[#FAFAFB] dark:bg-[#0F0F12] border border-[#F1F1F4] dark:border-[#22222A] space-y-2">
-                  <div className="flex items-center justify-between text-xs font-semibold">
-                    <span className="text-[#202020] dark:text-[#F4F4F6]">
-                      Chapter Reader Retention
-                    </span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-mono">
-                      {bookRetention}% Completed
-                    </span>
-                  </div>
-                  {/* Progress bar */}
-                  <div className="w-full h-2 rounded-full bg-[#E5E5EB] dark:bg-[#252530] overflow-hidden flex">
-                    <div
-                      style={{ width: `${bookRetention}%` }}
-                      className="h-full bg-gradient-to-r from-[#E43136] to-[#FB8500] rounded-full"
-                    />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-[#777780] dark:text-[#9E9EA9]">
-                    <span>Ch. 1 (100%)</span>
-                    <span>Ch. 2 (84%)</span>
-                    <span>Ch. 3 ({bookRetention}%)</span>
-                  </div>
-                </div>
-
                 {/* Footer Controls */}
                 <div className="flex items-center justify-between pt-1">
                   <div className="text-[11px] text-[#6E6E77] dark:text-[#9E9EA8]">
@@ -390,8 +333,12 @@ export const AnalyticsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-            );
-          })}
+            ))
+          ) : (
+            <p className="col-span-full rounded-xl border border-dashed border-[#DDDDE3] p-8 text-center text-xs text-[#777780] dark:border-[#2C2C35] dark:text-[#9E9EA9]">
+              No authored books yet. Published book analytics will appear here.
+            </p>
+          )}
         </div>
       </div>
     </div>

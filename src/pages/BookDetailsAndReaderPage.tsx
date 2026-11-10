@@ -464,8 +464,8 @@ export const BookDetailsPage: React.FC = () => {
       followersCount: 0,
       followingCount: 0,
       booksCount: 1,
-      streakDays: 1,
-      points: 100,
+      streakDays: 0,
+      points: 0,
       membershipPlan: 'free' as const,
       isOnline: true,
       showOnlineStatus: true,
@@ -803,16 +803,20 @@ export const BookDetailsPage: React.FC = () => {
             <div className="pt-2 flex flex-col gap-3">
               {/* Row 1: Primary Reading & Co-reading CTAs */}
               <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-                <button
-                  type="button"
-                  onClick={() => navigate(`/read/${book.id}?mode=text`)}
-                  className="py-2.5 px-5 sm:py-3 sm:px-6 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap shadow-xs cursor-pointer active:scale-98"
-                >
-                  <BookOpen className="w-4 h-4" />
-                  <span>Read Book</span>
-                </button>
+                {(!book.availableModes?.length || book.availableModes.includes('text')) && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/read/${book.id}?mode=text`)}
+                    className="py-2.5 px-5 sm:py-3 sm:px-6 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap shadow-xs cursor-pointer active:scale-98"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>Read Book</span>
+                  </button>
+                )}
 
-                {book.format === 'pdf' && (
+                {(book.availableModes?.length
+                  ? book.availableModes.includes('pdf')
+                  : book.format === 'pdf' || Boolean(book.fileURL)) && (
                   <button
                     type="button"
                     onClick={() => navigate(`/read/${book.id}?mode=pdf`)}
@@ -823,14 +827,16 @@ export const BookDetailsPage: React.FC = () => {
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => navigate(`/read/${book.id}?mode=audio`)}
-                  className="py-2.5 px-4 sm:py-3 sm:px-5 rounded-xl bg-[#FFF3F4] dark:bg-[#2D1619] border border-[#E43136]/40 text-[#E43136] hover:bg-[#E43136] hover:text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer active:scale-98"
-                >
-                  <Headphones className="w-4 h-4" />
-                  <span>Audio Reader</span>
-                </button>
+                {(!book.availableModes?.length || book.availableModes.includes('audio')) && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/read/${book.id}?mode=audio`)}
+                    className="py-2.5 px-4 sm:py-3 sm:px-5 rounded-xl bg-[#FFF3F4] dark:bg-[#2D1619] border border-[#E43136]/40 text-[#E43136] hover:bg-[#E43136] hover:text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer active:scale-98"
+                  >
+                    <Headphones className="w-4 h-4" />
+                    <span>Audio Reader</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -961,13 +967,6 @@ export const BookDetailsPage: React.FC = () => {
                               {authorProfile.followersCount.toLocaleString()}
                             </strong>{' '}
                             Followers
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span>
-                            <strong className="text-[#202020] dark:text-white font-semibold">
-                              {authorProfile.points || 100}
-                            </strong>{' '}
-                            Points
                           </span>
                         </div>
                       </div>
@@ -1615,6 +1614,15 @@ export const ReaderPage: React.FC = () => {
     () => readingProgress.find((p) => p.bookId === bookId),
     [readingProgress, bookId]
   );
+  const availableModes = useMemo(
+    () =>
+      book?.availableModes?.length
+        ? book.availableModes
+        : book?.format === 'pdf' || book?.fileURL
+        ? ['text', 'pdf', 'audio']
+        : ['text', 'audio'],
+    [book?.availableModes, book?.fileURL, book?.format]
+  );
 
   // Exactly 1 view per user tracked (deduplicated across Details page & Reader)
   useEffect(() => {
@@ -1634,6 +1642,11 @@ export const ReaderPage: React.FC = () => {
       : 'text'
   );
 
+  useEffect(() => {
+    if (!book || availableModes.includes(readingMode)) return;
+    setReadingMode((availableModes[0] as ReadingMode) || 'text');
+  }, [book?.id, availableModes, readingMode]);
+
   // Load persisted user reading preferences
   const prefsStorageKey = `rc_reader_prefs_${currentUser?.uid || 'guest'}`;
   const [prefs, setPrefs] = useState<ReaderUserPreferences>(() => {
@@ -1646,7 +1659,7 @@ export const ReaderPage: React.FC = () => {
     } catch {}
     return {
       ...DEFAULT_READER_PREFS,
-      appearance: theme === 'dark' || theme === 'custom' ? 'dark' : 'light',
+      appearance: theme === 'dark' ? 'dark' : 'light',
     };
   });
 
@@ -2101,18 +2114,13 @@ export const ReaderPage: React.FC = () => {
       .filter((p) => p.bookId !== bookId)
       .reduce((acc, p) => acc + parseStructuredBookmarkNote(p.bookmarkNote).readingSeconds, 0);
     const totalReadingSecs = otherBooksSeconds + bookReadingSeconds;
-    const streakDays = Math.max(1, currentUser?.streakDays || 1);
-    const avgDailySecs = Math.round(totalReadingSecs / streakDays);
-
     return {
       totalReadingSecs,
       booksStartedCount,
       booksCompletedCount,
       totalChaptersDone: Math.max(completedChapters.length, totalChaptersDone),
-      streakDays,
-      avgDailySecs,
     };
-  }, [readingProgress, bookId, bookReadingSeconds, completedChapters.length, currentUser?.streakDays]);
+  }, [readingProgress, bookId, bookReadingSeconds, completedChapters.length]);
 
   // Clean text for speech synthesis and cache by stable block ID
   const cleanTextForSpeech = useCallback(
@@ -2812,22 +2820,24 @@ export const ReaderPage: React.FC = () => {
           aria-label="Reading mode selector"
           className="inline-flex items-center rounded-xl border border-current/15 p-0.5 text-[11px] font-semibold shrink-0"
         >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={readingMode === 'text'}
-            onClick={() => handleSwitchMode('text')}
-            className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
-              readingMode === 'text'
-                ? 'bg-[#E43136] text-white shadow-2xs'
-                : 'opacity-75 hover:opacity-100'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Text</span>
-          </button>
+          {availableModes.includes('text') && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={readingMode === 'text'}
+              onClick={() => handleSwitchMode('text')}
+              className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                readingMode === 'text'
+                  ? 'bg-[#E43136] text-white shadow-2xs'
+                  : 'opacity-75 hover:opacity-100'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Text</span>
+            </button>
+          )}
 
-          {(book.format === 'pdf' || Boolean(book.fileURL)) && (
+          {availableModes.includes('pdf') && (
             <button
               type="button"
               role="tab"
@@ -2844,23 +2854,25 @@ export const ReaderPage: React.FC = () => {
             </button>
           )}
 
-          <button
-            type="button"
-            role="tab"
-            aria-selected={readingMode === 'audio'}
-            onClick={() => handleSwitchMode('audio')}
-            className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
-              readingMode === 'audio'
-                ? 'bg-[#E43136] text-white shadow-2xs'
-                : 'opacity-75 hover:opacity-100'
-            }`}
-          >
-            <Headphones className="w-3.5 h-3.5" />
-            <span>Audio</span>
-            {isPlayingAudio && !isPausedAudio && (
-              <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />
-            )}
-          </button>
+          {availableModes.includes('audio') && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={readingMode === 'audio'}
+              onClick={() => handleSwitchMode('audio')}
+              className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                readingMode === 'audio'
+                  ? 'bg-[#E43136] text-white shadow-2xs'
+                  : 'opacity-75 hover:opacity-100'
+              }`}
+            >
+              <Headphones className="w-3.5 h-3.5" />
+              <span>Audio</span>
+              {isPlayingAudio && !isPausedAudio && (
+                <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />
+              )}
+            </button>
+          )}
         </div>
 
         {/* Right: Bookmark, Highlights/Notes Drawer, Single Settings Icon, Fullscreen */}
@@ -3124,10 +3136,6 @@ export const ReaderPage: React.FC = () => {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider opacity-70">
                   Your Reading Analytics
-                </span>
-                <span className="text-[11px] font-semibold text-[#E43136] inline-flex items-center gap-1">
-                  <Flame className="w-3 h-3" />
-                  {readingAnalytics.streakDays}d Streak
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">

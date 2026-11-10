@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
-import { CustomThemeConfig } from '../models/types';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Book } from '../models/types';
 import {
   Edit3,
   UserPlus,
@@ -21,11 +21,13 @@ import {
   Sparkles,
   AlertTriangle,
   Trash2,
+  ChevronRight,
 } from 'lucide-react';
 import { useRedcover } from '../contexts/RedcoverContext';
 import { FIREBASE_PROJECT_INFO } from '../services/firebase/firebaseConfig';
 import { uploadFileToRedcoverStorage } from '../services/firebase/storageService';
-import { BookCard, EmptyState, UserAvatar } from '../components/common/UIPrimitives';
+import { ImageCropModal } from '../components/common/ImageCropModal';
+import { BookCard, BookCover, EmptyState, UserAvatar } from '../components/common/UIPrimitives';
 
 export const ProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -37,6 +39,7 @@ export const ProfilePage: React.FC = () => {
     reviews,
     readingProgress,
     follows,
+    friendships,
     savedBooks,
     likedBooks,
     toggleFollowUser,
@@ -48,6 +51,7 @@ export const ProfilePage: React.FC = () => {
     toggleLikeBook,
     addToast,
   } = useRedcover();
+  const [searchParams] = useSearchParams();
 
   const targetUid = userId || currentUser?.uid;
   const profileUser = useMemo(
@@ -55,13 +59,19 @@ export const ProfilePage: React.FC = () => {
     [users, targetUid, currentUser]
   );
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'books' | 'reviews' | 'activity' | 'about'>('overview');
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'books' | 'reviews' | 'activity' | 'about' | 'followers' | 'following' | 'friends' | 'likes'
+  >(() => {
+    const requestedTab = searchParams.get('tab');
+    return requestedTab === 'likes' ? 'likes' : 'overview';
+  });
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [bioInput, setBioInput] = useState('');
   const [photoURLInput, setPhotoURLInput] = useState('');
   const [coverURLInput, setCoverURLInput] = useState('');
+  const [cropTarget, setCropTarget] = useState<{ file: File; field: 'avatar' | 'cover' } | null>(null);
   const [nameColorInput, setNameColorInput] = useState('');
 
   if (!profileUser) {
@@ -79,6 +89,30 @@ export const ProfilePage: React.FC = () => {
   const isFollowing = follows.some(
     (f) => f.followerId === currentUser?.uid && f.followingId === profileUser.uid
   );
+  const followerUsers = follows
+    .filter((follow) => follow.followingId === profileUser.uid)
+    .map((follow) => users.find((user) => user.uid === follow.followerId))
+    .filter((user): user is NonNullable<typeof user> => Boolean(user));
+  const followingUsers = follows
+    .filter((follow) => follow.followerId === profileUser.uid)
+    .map((follow) => users.find((user) => user.uid === follow.followingId))
+    .filter((user): user is NonNullable<typeof user> => Boolean(user));
+  const friendUsers = friendships
+    .filter(
+      (friendship) =>
+        friendship.status === 'accepted' &&
+        (friendship.requesterId === profileUser.uid || friendship.receiverId === profileUser.uid)
+    )
+    .map((friendship) => {
+      const friendId =
+        friendship.requesterId === profileUser.uid ? friendship.receiverId : friendship.requesterId;
+      return users.find((user) => user.uid === friendId);
+    })
+    .filter((user): user is NonNullable<typeof user> => Boolean(user));
+  const profileLikedBooks = likedBooks
+    .filter((like) => like.userId === profileUser.uid)
+    .map((like) => books.find((book) => book.id === like.bookId))
+    .filter((book): book is Book => Boolean(book));
 
   const userPublishedBooks = books.filter(
     (b) => b.authorId === profileUser.uid && b.status === 'published'
@@ -87,6 +121,12 @@ export const ProfilePage: React.FC = () => {
   const userActivity = isSelf ? readingProgress : [];
   const savedSet = new Set(savedBooks.map((s) => s.bookId));
   const likedSet = new Set(likedBooks.map((l) => l.bookId));
+  const profilePeople =
+    activeTab === 'followers'
+      ? followerUsers
+      : activeTab === 'following'
+      ? followingUsers
+      : friendUsers;
 
   const openEditModal = () => {
     setDisplayNameInput(profileUser.displayName);
@@ -117,13 +157,21 @@ export const ProfilePage: React.FC = () => {
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
+    setCropTarget({ file, field });
+  };
+
+  const handleSaveCroppedImage = async (file: File) => {
+    if (!cropTarget) return;
     try {
       const url = await uploadFileToRedcoverStorage('profile_media', profileUser.uid, file);
-      if (field === 'avatar') setPhotoURLInput(url);
+      if (cropTarget.field === 'avatar') setPhotoURLInput(url);
       else setCoverURLInput(url);
       addToast('Profile image uploaded to Firebase Storage!', 'success');
+      setCropTarget(null);
     } catch {
       addToast('Could not upload image.', 'error');
+      throw new Error('Could not upload image. Check your connection and try again.');
     }
   };
 
@@ -236,28 +284,22 @@ export const ProfilePage: React.FC = () => {
               <span className="block text-lg font-bold">{userPublishedBooks.length}</span>
               <span className="text-xs text-[#777780]">Published Books</span>
             </div>
-            <div>
-              <span className="block text-lg font-bold">{profileUser.followersCount.toLocaleString()}</span>
+            <button type="button" onClick={() => setActiveTab('followers')} className="text-left cursor-pointer">
+              <span className="block text-lg font-bold">{followerUsers.length}</span>
               <span className="text-xs text-[#777780]">Followers</span>
-            </div>
-            <div>
-              <span className="block text-lg font-bold">{profileUser.followingCount.toLocaleString()}</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('following')} className="text-left cursor-pointer">
+              <span className="block text-lg font-bold">{followingUsers.length}</span>
               <span className="text-xs text-[#777780]">Following</span>
-            </div>
-            <div>
-              <span className="text-lg font-bold inline-flex items-center gap-1 text-[#E43136]">
-                <Flame className="w-4 h-4" />
-                {profileUser.streakDays}d
-              </span>
-              <span className="block text-xs text-[#777780]">Reading Streak</span>
-            </div>
-            <div>
-              <span className="text-lg font-bold inline-flex items-center gap-1 text-[#E6A02C]">
-                <Award className="w-4 h-4" />
-                {profileUser.points.toLocaleString()}
-              </span>
-              <span className="block text-xs text-[#777780]">Redcover Points</span>
-            </div>
+            </button>
+            <button type="button" onClick={() => setActiveTab('friends')} className="text-left cursor-pointer">
+              <span className="block text-lg font-bold">{friendUsers.length}</span>
+              <span className="text-xs text-[#777780]">Friends</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('likes')} className="text-left cursor-pointer">
+              <span className="block text-lg font-bold">{profileLikedBooks.length}</span>
+              <span className="text-xs text-[#777780]">Liked Books</span>
+            </button>
           </div>
         </div>
       </div>
@@ -272,6 +314,10 @@ export const ProfilePage: React.FC = () => {
             ...(profileUser.publicActivity || isSelf
               ? [{ id: 'activity' as const, label: 'Reading Activity' }]
               : []),
+            { id: 'followers', label: `Followers (${followerUsers.length})` },
+            { id: 'following', label: `Following (${followingUsers.length})` },
+            { id: 'friends', label: `Friends (${friendUsers.length})` },
+            { id: 'likes', label: `Liked Books (${profileLikedBooks.length})` },
             { id: 'about', label: 'About' },
           ] as const
         ).map((tab) => (
@@ -289,6 +335,57 @@ export const ProfilePage: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {(activeTab === 'followers' || activeTab === 'following' || activeTab === 'friends') && (
+        <section className="space-y-3">
+          <h2 className="font-display text-lg font-semibold capitalize">{activeTab}</h2>
+          {profilePeople.length > 0 ? (
+            <div className="divide-y divide-[#F1F1F4] rounded-xl border border-[#DDDDE3] bg-white dark:divide-[#2C2C35] dark:border-[#2C2C35] dark:bg-[#16161A]">
+              {profilePeople.map((person) => (
+                <Link
+                  key={person.uid}
+                  to={`/profile/${person.uid}`}
+                  className="flex items-center gap-3 p-3 hover:bg-[#FAFAFB] dark:hover:bg-[#1E1E24]"
+                >
+                  <UserAvatar user={person} size="md" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-[#202020] dark:text-[#F4F4F6]">
+                      {person.displayName}
+                    </span>
+                    <span className="block truncate text-xs text-[#777780] dark:text-[#9E9EA9]">
+                      @{person.username}
+                    </span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-[#9E9EA9]" />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title={`No ${activeTab} yet`} description="People will appear here as your community grows." />
+          )}
+        </section>
+      )}
+
+      {activeTab === 'likes' && (
+        <section className="space-y-4">
+          <h2 className="font-display text-lg font-semibold">Liked Books</h2>
+          {profileLikedBooks.length > 0 ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+              {profileLikedBooks.map((book) => (
+                <Link key={book.id} to={`/book/${book.id}`} className="min-w-0">
+                  <div className="mb-2 aspect-[3/4] overflow-hidden rounded-lg">
+                    <BookCover book={book} size="sm" className="h-full w-full" />
+                  </div>
+                  <p className="truncate text-xs font-semibold">{book.title}</p>
+                  <p className="truncate text-[11px] text-[#777780]">{book.authorName}</p>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="No liked books" description="Books you like will appear here." />
+          )}
+        </section>
+      )}
 
       {(activeTab === 'overview' || activeTab === 'books') && (
         <section className="space-y-4">
@@ -535,6 +632,14 @@ export const ProfilePage: React.FC = () => {
           </div>
         </div>
       )}
+      {cropTarget && (
+        <ImageCropModal
+          file={cropTarget.file}
+          kind={cropTarget.field}
+          onCancel={() => setCropTarget(null)}
+          onSave={handleSaveCroppedImage}
+        />
+      )}
     </div>
   );
 };
@@ -636,7 +741,7 @@ export const MembershipPage: React.FC = () => {
           All Features Are 100% Free & Open
         </h1>
         <p className="text-sm text-[#777780] dark:text-[#9E9EA9] max-w-lg mx-auto">
-          Membership fees have been completely removed. Enjoy unlimited reading, publishing, full analytics, and Custom Theme Studio with zero restrictions!
+          Membership fees have been completely removed. Enjoy unlimited reading, publishing, and full analytics.
         </p>
       </div>
 
@@ -651,7 +756,7 @@ export const MembershipPage: React.FC = () => {
           to="/settings"
           className="px-5 py-2.5 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] text-xs font-semibold text-[#202020] dark:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-all"
         >
-          Theme Settings
+          Appearance Settings
         </Link>
       </div>
     </div>
@@ -663,7 +768,6 @@ export const SettingsPage: React.FC = () => {
     currentUser,
     privateInfo,
     theme,
-    customTheme,
     isAdmin,
     books,
     users,
@@ -671,21 +775,10 @@ export const SettingsPage: React.FC = () => {
     lastSyncedAt,
     defaultDbCount,
     setTheme,
-    setCustomTheme,
     updateUserProfile,
     updatePrivateSettings,
-    seedInitialDataToFirebase,
     logout,
   } = useRedcover();
-
-  const [syncing, setSyncing] = useState(false);
-  const [editorCustomTheme, setEditorCustomTheme] = useState<CustomThemeConfig>(customTheme);
-
-  useEffect(() => {
-    if (customTheme) {
-      setEditorCustomTheme(customTheme);
-    }
-  }, [customTheme]);
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -718,27 +811,7 @@ export const SettingsPage: React.FC = () => {
             <div>Last Synced: {new Date(lastSyncedAt).toLocaleTimeString()}</div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <p className="text-xs text-[#777780]">
-              Admin-only database synchronization & starter catalog utility.
-            </p>
-            <button
-              type="button"
-              onClick={async () => {
-                setSyncing(true);
-                try {
-                  await seedInitialDataToFirebase();
-                } finally {
-                  setSyncing(false);
-                }
-              }}
-              disabled={syncing}
-              className="py-2 px-4 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing to Firestore...' : 'Sync Starter Catalog to Firebase'}
-            </button>
-          </div>
+          <p className="text-xs text-[#777780]">Read-only Firebase connection diagnostics.</p>
         </div>
       )}
 
@@ -751,17 +824,15 @@ export const SettingsPage: React.FC = () => {
             <div>
               <p className="text-sm font-medium">Platform Themes</p>
               <p className="text-xs text-[#777780]">
-                Choose standard Light or Dark mode, or customize your own theme with Custom Theme Studio.
+                Choose Light or Dark mode.
               </p>
             </div>
           </div>
 
-          {/* 3 Theme Options: Light, Dark, Custom */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {[
               { id: 'light', label: 'Light Mode', icon: '☀️', desc: 'Clean crisp paper white' },
               { id: 'dark', label: 'Dark Mode', icon: '🌙', desc: 'Obsidian dark reader mode' },
-              { id: 'custom', label: 'Custom Theme', icon: '🎨', desc: 'Personalized colors, accent & font' },
             ].map((t) => {
               const isSelected = theme === t.id;
               return (
@@ -789,157 +860,6 @@ export const SettingsPage: React.FC = () => {
               );
             })}
           </div>
-
-          {/* Custom Theme Studio (Always accessible when Custom Theme is selected) */}
-          {theme === 'custom' && (
-            <div className="p-4 rounded-2xl bg-[#F6F7F9] dark:bg-[#15151C] border border-[#DDDDE3] dark:border-[#282832] space-y-4 animate-in fade-in duration-200">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#E43136]">
-                    🎨 Custom Theme Studio
-                  </h4>
-                  <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8]">
-                    Pick preset palettes or customize every color of your platform.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCustomTheme(editorCustomTheme)}
-                  className="px-3.5 py-1.5 rounded-xl bg-[#E43136] hover:bg-[#D92D32] text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
-                >
-                  Apply & Save Theme
-                </button>
-              </div>
-
-              {/* Detailed Color Pickers */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-black/5 dark:border-white/5">
-                {/* Background Color */}
-                <div>
-                  <label className="block text-[11px] font-medium text-[#6E6E77] dark:text-[#9E9EA8] mb-1">
-                    Canvas Background
-                  </label>
-                  <div className="flex items-center gap-2 p-1.5 rounded-xl bg-white dark:bg-[#1A1A22] border border-[#DDDDE3] dark:border-[#2C2C35]">
-                    <input
-                      type="color"
-                      value={editorCustomTheme.bgColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, bgColor: e.target.value }))}
-                      className="w-7 h-7 rounded-lg cursor-pointer border-0 p-0"
-                    />
-                    <input
-                      type="text"
-                      value={editorCustomTheme.bgColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, bgColor: e.target.value }))}
-                      className="text-xs font-mono w-20 outline-none text-[#202020] dark:text-white uppercase"
-                    />
-                  </div>
-                </div>
-
-                {/* Surface / Card Color */}
-                <div>
-                  <label className="block text-[11px] font-medium text-[#6E6E77] dark:text-[#9E9EA8] mb-1">
-                    Card & Surface
-                  </label>
-                  <div className="flex items-center gap-2 p-1.5 rounded-xl bg-white dark:bg-[#1A1A22] border border-[#DDDDE3] dark:border-[#2C2C35]">
-                    <input
-                      type="color"
-                      value={editorCustomTheme.surfaceColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, surfaceColor: e.target.value }))}
-                      className="w-7 h-7 rounded-lg cursor-pointer border-0 p-0"
-                    />
-                    <input
-                      type="text"
-                      value={editorCustomTheme.surfaceColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, surfaceColor: e.target.value }))}
-                      className="text-xs font-mono w-20 outline-none text-[#202020] dark:text-white uppercase"
-                    />
-                  </div>
-                </div>
-
-                {/* Accent Color */}
-                <div>
-                  <label className="block text-[11px] font-medium text-[#6E6E77] dark:text-[#9E9EA8] mb-1">
-                    Accent / Button Color
-                  </label>
-                  <div className="flex items-center gap-2 p-1.5 rounded-xl bg-white dark:bg-[#1A1A22] border border-[#DDDDE3] dark:border-[#2C2C35]">
-                    <input
-                      type="color"
-                      value={editorCustomTheme.accentColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, accentColor: e.target.value }))}
-                      className="w-7 h-7 rounded-lg cursor-pointer border-0 p-0"
-                    />
-                    <input
-                      type="text"
-                      value={editorCustomTheme.accentColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, accentColor: e.target.value }))}
-                      className="text-xs font-mono w-20 outline-none text-[#202020] dark:text-white uppercase"
-                    />
-                  </div>
-                </div>
-
-                {/* Name Font Color */}
-                <div>
-                  <label className="block text-[11px] font-medium text-[#6E6E77] dark:text-[#9E9EA8] mb-1">
-                    Your Name Font Color
-                  </label>
-                  <div className="flex items-center gap-2 p-1.5 rounded-xl bg-white dark:bg-[#1A1A22] border border-[#DDDDE3] dark:border-[#2C2C35]">
-                    <input
-                      type="color"
-                      value={editorCustomTheme.nameColor || editorCustomTheme.accentColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, nameColor: e.target.value }))}
-                      className="w-7 h-7 rounded-lg cursor-pointer border-0 p-0"
-                    />
-                    <input
-                      type="text"
-                      value={editorCustomTheme.nameColor || editorCustomTheme.accentColor}
-                      onChange={(e) => setEditorCustomTheme((p) => ({ ...p, nameColor: e.target.value }))}
-                      className="text-xs font-mono w-20 outline-none text-[#202020] dark:text-white uppercase"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Live Preview Bar */}
-              <div
-                className="p-3 rounded-xl border flex items-center justify-between"
-                style={{
-                  backgroundColor: editorCustomTheme.surfaceColor,
-                  borderColor: editorCustomTheme.accentColor + '40',
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs"
-                    style={{
-                      backgroundColor: editorCustomTheme.accentColor,
-                      color: '#FFFFFF',
-                    }}
-                  >
-                    PRO
-                  </div>
-                  <div>
-                    <span
-                      className="text-xs font-bold"
-                      style={{ color: editorCustomTheme.nameColor || editorCustomTheme.accentColor }}
-                    >
-                      {currentUser?.displayName || 'Your Name'}
-                    </span>
-                    <p className="text-[11px]" style={{ color: editorCustomTheme.textColor + 'A0' }}>
-                      Live theme preview: background, surface, and font accent.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setCustomTheme(editorCustomTheme)}
-                  className="px-3 py-1 rounded-lg text-xs font-bold text-white transition-transform hover:scale-105 cursor-pointer"
-                  style={{ backgroundColor: editorCustomTheme.accentColor }}
-                >
-                  Save Theme
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {currentUser && (
@@ -973,7 +893,7 @@ export const SettingsPage: React.FC = () => {
             <div className="flex items-center justify-between py-2">
               <div>
                 <p className="text-sm font-medium">Daily Reading Reminders</p>
-                <p className="text-xs text-[#777780]">Keep your daily reading streak active</p>
+                <p className="text-xs text-[#777780]">Choose whether to receive daily reading reminders</p>
               </div>
               <input
                 type="checkbox"

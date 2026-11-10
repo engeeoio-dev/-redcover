@@ -3,6 +3,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { storage, db, defaultDb, auth, FIREBASE_PROJECT_INFO } from './firebaseConfig';
 import {
   Book,
+  BookReadingMode,
   Chapter,
   PostComment,
   ReadingProgress,
@@ -675,8 +676,8 @@ export function normalizeUserDoc(id: string, raw: Record<string, any>): UserProf
     followersCount: Number(raw.followersCount ?? raw.followers ?? 0),
     followingCount: Number(raw.followingCount ?? raw.following ?? 0),
     booksCount: Number(raw.booksCount ?? raw.publishedBooksCount ?? 0),
-    streakDays: Number(raw.streakDays ?? raw.readingStreak ?? raw.streak ?? 1),
-    points: Number(raw.points ?? raw.rewardPoints ?? 100),
+    streakDays: Number(raw.streakDays ?? raw.readingStreak ?? raw.streak ?? 0),
+    points: Number(raw.points ?? raw.rewardPoints ?? 0),
     membershipPlan:
       raw.membershipPlan === 'premium' || raw.isPremium === true || raw.membership === 'premium'
         ? 'premium'
@@ -702,6 +703,11 @@ export function normalizeBookDoc(
   const shortDescription = String(raw.shortDescription || raw.subtitle || description.slice(0, 180)).slice(0, 400);
   const coverURL = extractBookCoverUrl(raw);
   const fileURL = extractBookFileUrl(raw);
+  const reviewsCount = Math.max(0, Number(raw.reviewsCount ?? raw.ratingCount ?? raw.totalReviews ?? 0));
+  const rawRating = Number(raw.rating ?? raw.averageRating ?? raw.avgRating ?? 0);
+  const rating = reviewsCount > 0 && Number.isFinite(rawRating)
+    ? Math.min(5, Math.max(0, rawRating))
+    : 0;
   const authorAvatar = normalizeImageString(
     raw.authorAvatar || raw.authorPhoto || raw.authorImage || raw.writerAvatar || ''
   );
@@ -727,10 +733,16 @@ export function normalizeBookDoc(
       Boolean(fileURL && isLikelyPdfUrl(fileURL))
         ? 'pdf'
         : 'story',
+    availableModes: Array.isArray(raw.availableModes)
+      ? raw.availableModes.filter(
+          (mode: unknown): mode is BookReadingMode =>
+            mode === 'text' || mode === 'pdf' || mode === 'audio'
+        )
+      : undefined,
     category: String(raw.category || raw.genre || raw.bookCategory || 'Fiction').slice(0, 80),
     language: String(raw.language || raw.bookLanguage || 'English').slice(0, 60),
-    rating: Number(raw.rating ?? raw.averageRating ?? raw.avgRating ?? 4.8),
-    reviewsCount: Number(raw.reviewsCount ?? raw.ratingCount ?? raw.totalReviews ?? 0),
+    rating,
+    reviewsCount,
     views: Number(raw.views ?? raw.viewsCount ?? raw.reads ?? raw.readCount ?? 0),
     viewers: Array.isArray(raw.viewers)
       ? raw.viewers
@@ -791,7 +803,7 @@ export function normalizeReviewDoc(id: string, raw: Record<string, any>): Review
     userId: String(raw.userId || ''),
     userName: String(raw.userName || raw.reviewerName || 'Reader'),
     userAvatar: normalizeImageString(raw.userAvatar || raw.userPhoto || ''),
-    rating: Math.min(5, Math.max(1, Number(raw.rating ?? 5))),
+    rating: Math.min(5, Math.max(0, Number(raw.rating ?? 0))),
     text: String(raw.text || raw.comment || raw.review || ''),
     visibility: raw.visibility === 'hidden' ? 'hidden' : 'public',
     createdAt: toIsoString(raw.createdAt),

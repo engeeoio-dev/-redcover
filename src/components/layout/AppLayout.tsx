@@ -97,7 +97,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
     location.pathname.startsWith('/hub') &&
     (location.search.includes('chatId=') || location.search.includes('sessionId='));
 
-  const isDark = theme === 'dark' || theme === 'custom';
+  const isDark = theme === 'dark';
 
   const handleToggleTheme = () => {
     setTheme(isDark ? 'light' : 'dark');
@@ -315,19 +315,12 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                           <span className="text-xs font-semibold text-[#202020] dark:text-[#F5F5F7]">
                             Themes
                           </span>
-                          <Link
-                            to="/settings"
-                            onClick={() => setDropdownOpen(false)}
-                            className="text-[10px] text-[#E43136] hover:underline"
-                          >
-                            Custom Theme Studio →
-                          </Link>
+                          <span className="text-[10px] text-[#6E6E77] dark:text-[#9E9EA8]">Appearance</span>
                         </div>
-                        <div className="grid grid-cols-3 gap-1.5">
+                        <div className="grid grid-cols-2 gap-1.5">
                           {[
                             { id: 'light', label: '☀️ Light', bg: '#FFFFFF', text: '#202020' },
                             { id: 'dark', label: '🌙 Dark', bg: '#0A0A0D', text: '#FFFFFF' },
-                            { id: 'custom', label: '🎨 Custom', bg: '#101C42', text: '#38BDF8' },
                           ].map((t) => {
                             const isSelected = theme === t.id;
                             return (

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Mail, Instagram, Send, CheckCircle2, AlertCircle, Clock, MapPin, Sparkles } from 'lucide-react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../services/firebase/firebaseConfig';
@@ -174,9 +175,9 @@ export const ContactPage: React.FC = () => {
             <p className="font-bold text-[#E43136]">Notice regarding Copyright & Safety:</p>
             <p className="text-[#6E6E77] dark:text-[#9E9EA8] leading-relaxed">
               If you are reporting copyright infringement or inappropriate content, please use our dedicated{' '}
-              <a href="/copyright" className="text-[#E43136] font-semibold underline">
+              <Link to="/copyright" className="text-[#E43136] font-semibold underline">
                 Copyright Reporting Process
-              </a>{' '}
+              </Link>{' '}
               or specify the book identifier in your message.
             </p>
           </div>

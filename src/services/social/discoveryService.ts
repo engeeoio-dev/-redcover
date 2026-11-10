@@ -146,10 +146,6 @@ export function generateFriendSuggestions(
       score += candidate.booksCount * 3;
     }
 
-    if (candidate.streakDays > 7) {
-      score += Math.min(candidate.streakDays, 30);
-    }
-
     suggestions.push({
       user: candidate,
       mutualFriendsCount: mutualCount,

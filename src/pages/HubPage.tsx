@@ -195,12 +195,32 @@ interface ViewedBookRecord {
 }
 
 export const HubPage: React.FC = () => {
+  const { firebaseUser, currentUser } = useRedcover();
+
+  if (!firebaseUser || !currentUser) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <EmptyState
+          title="Sign In to Use Hub"
+          description="Message readers, manage your books, and view your reading activity."
+          actionLabel="Sign In"
+          actionTo="/auth"
+        />
+      </div>
+    );
+  }
+
+  return <AuthenticatedHubPage firebaseUser={firebaseUser} currentUser={currentUser} />;
+};
+
+const AuthenticatedHubPage: React.FC<{
+  firebaseUser: NonNullable<ReturnType<typeof useRedcover>['firebaseUser']>;
+  currentUser: UserProfile;
+}> = ({ firebaseUser, currentUser }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
-    firebaseUser,
-    currentUser,
     isAdmin,
     books,
     users,
@@ -486,12 +506,6 @@ export const HubPage: React.FC = () => {
     setShowAttachMenu(false);
     setShowChatMoreMenu(false);
   }, [activeChat?.id]);
-
-  // Clear unread counter on chat document when viewing conversation
-  useEffect(() => {
-    if (!firebaseUser || !activeChat?.id) return;
-    clearChatUnreadCount(activeChat.id);
-  }, [firebaseUser?.uid, activeChat?.id, clearChatUnreadCount]);
 
   // Instantly clear unread whenever active chat receives messages while viewing
   useEffect(() => {

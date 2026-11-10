@@ -45,9 +45,10 @@ import {
   Headphones,
 } from 'lucide-react';
 import { useRedcover } from '../contexts/RedcoverContext';
-import { Book, BookFormat, REDCOVER_CATEGORIES } from '../models/types';
+import { Book, BookFormat, BookReadingMode, REDCOVER_CATEGORIES } from '../models/types';
 import { uploadFileToRedcoverStorage } from '../services/firebase/storageService';
 import { extractPdfTextAndCoverFromFile } from '../services/pdf/pdfExtractor';
+import { ImageCropModal } from '../components/common/ImageCropModal';
 import { BookCover } from '../components/common/UIPrimitives';
 
 interface EditableChapter {
@@ -125,9 +126,11 @@ export const CreateBookPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<string>(STUDIO_CATEGORIES[0] || 'Fiction');
   const [format, setFormat] = useState<BookFormat>('story');
+  const [availableModes, setAvailableModes] = useState<BookReadingMode[]>(['text', 'audio']);
   const [language, setLanguage] = useState('English');
   const [coverURL, setCoverURL] = useState('');
   const [fileURL, setFileURL] = useState('');
+  const [coverCropFile, setCoverCropFile] = useState<File | null>(null);
   const [wordCountGoal, setWordCountGoal] = useState<number>(15000);
 
   // Upload & PDF Extraction States
@@ -179,7 +182,7 @@ export const CreateBookPage: React.FC = () => {
   const [zenMode, setZenMode] = useState(false);
   const [mobileChaptersOpen, setMobileChaptersOpen] = useState(false);
   const [editorPaper, setEditorPaper] = useState<EditorPaper>(
-    theme === 'dark' || theme === 'custom' ? 'dark' : 'light'
+    theme === 'dark' ? 'dark' : 'light'
   );
   const [editorFontSize, setEditorFontSize] = useState<number>(17);
   const [showFindReplace, setShowFindReplace] = useState(false);
@@ -187,7 +190,7 @@ export const CreateBookPage: React.FC = () => {
   const [replaceQuery, setReplaceQuery] = useState('');
 
   useEffect(() => {
-    setEditorPaper(theme === 'dark' || theme === 'custom' ? 'dark' : 'light');
+    setEditorPaper(theme === 'dark' ? 'dark' : 'light');
   }, [theme]);
 
   // Status States
@@ -258,6 +261,9 @@ export const CreateBookPage: React.FC = () => {
     setDescription(found.description || '');
     setCategory(found.category || STUDIO_CATEGORIES[0] || 'Fiction');
     setFormat(found.format || 'story');
+    setAvailableModes(
+      found.availableModes || (found.format === 'pdf' ? ['pdf', 'text', 'audio'] : ['text', 'audio'])
+    );
     setLanguage(found.language || 'English');
     setCoverURL(found.coverURL || '');
     setFileURL(found.fileURL || '');
@@ -323,6 +329,7 @@ export const CreateBookPage: React.FC = () => {
     setDescription('');
     setCategory(STUDIO_CATEGORIES[0] || 'Fiction');
     setFormat(initialFormat);
+    setAvailableModes(initialFormat === 'pdf' ? [] : ['text', 'audio']);
     setLanguage('English');
     setCoverURL('');
     setFileURL('');
@@ -346,6 +353,7 @@ export const CreateBookPage: React.FC = () => {
 
   const startNewBookInStudio = (initialFormat: BookFormat = 'story') => {
     resetBookForm(initialFormat);
+    if (initialFormat === 'pdf') setAvailableModes(['pdf', 'text', 'audio']);
     setWorkspaceOpen(true);
     setActiveScreen(initialFormat === 'pdf' ? 'details' : 'editor');
     setSearchParams({});
@@ -353,6 +361,7 @@ export const CreateBookPage: React.FC = () => {
 
   const openUploadBookTab = () => {
     resetBookForm('pdf');
+    setAvailableModes([]);
     setWorkspaceOpen(false);
     setDashboardTab('upload');
     setSearchParams({});
@@ -360,6 +369,7 @@ export const CreateBookPage: React.FC = () => {
 
   const openCreateBookTab = () => {
     resetBookForm('story');
+    setAvailableModes(['text', 'audio']);
     setWorkspaceOpen(false);
     setDashboardTab('new');
     setSearchParams({});
@@ -368,12 +378,18 @@ export const CreateBookPage: React.FC = () => {
   // Cover Upload
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !currentUser) return;
     if (!file.type.startsWith('image/')) {
       setError('Please select a valid image file for the cover.');
       return;
     }
 
+    setCoverCropFile(file);
+  };
+
+  const handleCroppedCoverUpload = async (file: File) => {
+    if (!currentUser) return;
     setUploadingCover(true);
     setCoverProgress(0);
     setError('');
@@ -392,23 +408,41 @@ export const CreateBookPage: React.FC = () => {
         ...prev,
       ]);
       addToast('Cover uploaded to Firebase Storage.', 'success');
+      setCoverCropFile(null);
     } catch (err: any) {
       setError(err?.message || 'Cover upload failed.');
+      throw new Error(err?.message || 'Cover upload failed.');
     } finally {
       setUploadingCover(false);
     }
   };
 
+  const coverCropDialog = coverCropFile ? (
+    <ImageCropModal
+      file={coverCropFile}
+      kind="book-cover"
+      onCancel={() => setCoverCropFile(null)}
+      onSave={handleCroppedCoverUpload}
+    />
+  ) : null;
+
   // PDF Upload + Automatic PDF-to-Text & Page-1 Cover Extraction
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !currentUser) return;
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setError('Please upload a valid PDF document.');
       return;
     }
+    if (availableModes.length === 0) {
+      setError('Choose at least one book format before selecting the PDF.');
+      return;
+    }
 
-    setFormat('pdf');
+    const wantsPdf = availableModes.includes('pdf');
+    const wantsText = availableModes.includes('text') || availableModes.includes('audio');
+    setFormat(wantsPdf ? 'pdf' : 'story');
     setPdfFileName(file.name);
     setUploadingPdf(true);
     setExtractingPdf(true);
@@ -422,18 +456,15 @@ export const CreateBookPage: React.FC = () => {
       const extractionPromise = extractPdfTextAndCoverFromFile(file, (stage) => {
         setPdfExtractStage(stage);
       });
-      const uploadPromise = uploadFileToRedcoverStorage(
-        'book_pdfs',
-        targetKey,
-        file,
-        setPdfProgress
-      );
+      const uploadPromise = wantsPdf
+        ? uploadFileToRedcoverStorage('book_pdfs', targetKey, file, setPdfProgress)
+        : Promise.resolve('');
 
       const [extracted, uploadedPdfUrl] = await Promise.all([extractionPromise, uploadPromise]);
 
       setFileURL(uploadedPdfUrl);
       setPdfPageCount(extracted.numPages);
-      setPdfExtractedSummary(extracted.summaryPreview);
+      setPdfExtractedSummary(wantsText ? extracted.summaryPreview : '');
 
       if (!title.trim() && extracted.title) {
         setTitle(extracted.title);
@@ -445,7 +476,7 @@ export const CreateBookPage: React.FC = () => {
         setSubtitle(extracted.subject.slice(0, 140));
       }
 
-      if (extracted.chapters.length > 0) {
+      if (wantsText && extracted.chapters.length > 0) {
         setChapters(
           extracted.chapters.map((ch) => ({
             chapterNumber: ch.chapterNumber,
@@ -455,6 +486,9 @@ export const CreateBookPage: React.FC = () => {
             status: 'final' as const,
           }))
         );
+        setActiveChapterIdx(0);
+      } else {
+        setChapters([]);
         setActiveChapterIdx(0);
       }
 
@@ -490,8 +524,13 @@ export const CreateBookPage: React.FC = () => {
         }
       }
 
+      const selectedFormatLabels = availableModes
+        .map((mode) => ({ pdf: 'original PDF', text: 'text', audio: 'audio narration' })[mode])
+        .join(', ');
       addToast(
-        `PDF uploaded & converted into ${extracted.chapters.length} readable text chapters (${extracted.totalWords.toLocaleString()} words)!`,
+        wantsText
+          ? `PDF processed for ${selectedFormatLabels}: ${extracted.chapters.length} text chapters.`
+          : `Original PDF ready for publishing (${extracted.numPages} pages).`,
         'success'
       );
     } catch (err: any) {
@@ -861,8 +900,10 @@ export const CreateBookPage: React.FC = () => {
       if (!title.trim() && status === 'draft') {
         setTitle(effectiveTitle);
       }
-      const chaptersToPersist =
-        chapters.length > 0 && chapters.some((ch) => ch.content.trim().length > 0)
+      const includesText = availableModes.includes('text') || availableModes.includes('audio');
+      const chaptersToPersist = !includesText
+        ? []
+        : chapters.length > 0 && chapters.some((ch) => ch.content.trim().length > 0)
           ? chapters.map((ch, idx) => ({
               id: ch.id,
               chapterNumber: idx + 1,
@@ -887,9 +928,10 @@ export const CreateBookPage: React.FC = () => {
           coverURL: coverURL.trim(),
           fileURL: format === 'pdf' ? fileURL : '',
           format,
+          availableModes,
           category,
           language,
-          chaptersCount: Math.max(1, chaptersToPersist.length),
+          chaptersCount: includesText ? Math.max(1, chaptersToPersist.length) : 0,
           featured: false,
           status,
         },
@@ -1143,7 +1185,7 @@ export const CreateBookPage: React.FC = () => {
               }`}
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>2. Upload Book (PDF)</span>
+              <span>2. Upload Book</span>
             </button>
           </nav>
         </header>
@@ -1315,10 +1357,10 @@ export const CreateBookPage: React.FC = () => {
                     Option 2 · Direct PDF Book Uploader
                   </span>
                   <h2 className="text-lg sm:text-xl font-bold text-[#202020] dark:text-[#F4F4F6] mt-0.5">
-                    Upload PDF Book (Auto-Converted to Text & Multi-Voice Audio)
+                    Upload PDF Source & Choose Reader Formats
                   </h2>
                   <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8] mt-0.5">
-                    Upload your PDF file, set the cover, title, description, and details. Redcover automatically extracts the PDF into clean readable text chapters with Multi-Voice Audio narration.
+                    Choose the editions readers can use, then upload a PDF source to create them. You can keep the original PDF, extract text, add browser narration, or combine formats.
                   </p>
                 </div>
                 <button
@@ -1352,6 +1394,52 @@ export const CreateBookPage: React.FC = () => {
                 </div>
               )}
 
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-bold text-[#202020] dark:text-[#F4F4F6]">
+                  Choose reader formats
+                </legend>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([
+                    { mode: 'text', label: 'Text', detail: 'Readable chapters' },
+                    { mode: 'audio', label: 'Audio', detail: 'Text-to-speech narration' },
+                    { mode: 'pdf', label: 'Original PDF', detail: 'Page-by-page book reader' },
+                  ] as const).map((option) => (
+                    <label
+                      key={option.mode}
+                      className={`flex items-start gap-2.5 rounded-xl border p-3 cursor-pointer ${
+                        availableModes.includes(option.mode)
+                          ? 'border-[#E43136] bg-[#FFF3F4] dark:bg-[#2D1619]'
+                          : 'border-[#DDDDE3] dark:border-[#2C2C35]'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={availableModes.includes(option.mode)}
+                        disabled={uploadingPdf || extractingPdf || Boolean(pdfFileName)}
+                        onChange={(event) => {
+                          setAvailableModes((current) =>
+                            event.target.checked
+                              ? [...current, option.mode]
+                              : current.filter((mode) => mode !== option.mode)
+                          );
+                          setError('');
+                        }}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[#E43136]"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold">{option.label}</span>
+                        <span className="mt-0.5 block text-[11px] text-[#777780] dark:text-[#9E9EA9]">
+                          {option.detail}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[11px] text-[#777780] dark:text-[#9E9EA9]">
+                  Choose formats before uploading. Audio is browser narration of extracted text.
+                </p>
+              </fieldset>
+
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 {/* Left Column: Step 1 (PDF File) & Step 2 (Book Cover) */}
                 <div className="lg:col-span-4 space-y-4">
@@ -1360,7 +1448,7 @@ export const CreateBookPage: React.FC = () => {
                     <FileText className="w-8 h-8 text-[#E43136] mx-auto" />
                     <div>
                       <h3 className="text-xs font-bold text-[#202020] dark:text-[#F4F4F6]">
-                        Step 1: Select PDF Book File *
+                        Step 1: Select PDF Source File *
                       </h3>
                       <p className="text-[11px] text-[#6E6E77] dark:text-[#9E9EA8] mt-0.5">
                         {pdfFileName
@@ -1374,9 +1462,9 @@ export const CreateBookPage: React.FC = () => {
                       <span>
                         {uploadingPdf || extractingPdf
                           ? pdfExtractStage || `Uploading ${pdfProgress}%...`
-                          : fileURL
-                          ? 'Replace PDF File'
-                          : 'Choose PDF File'}
+                          : pdfFileName
+                          ? 'Replace PDF Source'
+                          : 'Choose PDF Source'}
                       </span>
                       <input
                         type="file"
@@ -1390,7 +1478,9 @@ export const CreateBookPage: React.FC = () => {
                       <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center justify-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>
-                          Converted to {chapters.length} Text Chapters ({totalWordCount.toLocaleString()} words)
+                          {availableModes.includes('text') || availableModes.includes('audio')
+                            ? `Converted to ${chapters.length} Text Chapters (${totalWordCount.toLocaleString()} words)`
+                            : `Original PDF ready (${pdfPageCount} pages)`}
                         </span>
                       </div>
                     )}
@@ -1529,10 +1619,13 @@ export const CreateBookPage: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <Headphones className="w-4 h-4 text-[#E43136]" />
                         <span className="text-xs font-bold text-[#202020] dark:text-[#F4F4F6]">
-                          PDF-to-Text & Multi-Voice Audio Preview ({chapters.length} Sections)
+                          {availableModes.includes('text') || availableModes.includes('audio')
+                            ? `Text & Audio Preview (${chapters.length} Sections)`
+                            : `Original PDF Edition (${pdfPageCount} Pages)`}
                         </span>
                       </div>
-                      {fileURL && (
+                      {fileURL &&
+                        (availableModes.includes('text') || availableModes.includes('audio')) && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1553,7 +1646,9 @@ export const CreateBookPage: React.FC = () => {
                       </div>
                     ) : (
                       <p className="text-[11px] text-[#6E6E77] dark:text-[#9E9EA8]">
-                        Once you select a PDF file in Step 1, its pages will automatically appear here in clean text format ready for readers and Multi-Voice Audio narration.
+                        {availableModes.includes('text') || availableModes.includes('audio')
+                          ? 'After selecting the PDF source, extracted text and browser narration will be prepared here.'
+                          : 'The original PDF will open as a page-by-page edition without creating text chapters.'}
                       </p>
                     )}
                   </div>
@@ -1636,10 +1731,10 @@ export const CreateBookPage: React.FC = () => {
                       Option 2
                     </span>
                     <h3 className="text-base font-bold text-[#202020] dark:text-[#F4F4F6] mt-0.5">
-                      Upload Book (PDF to Text & Audio)
+                      Upload a Book
                     </h3>
                     <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8] mt-1 leading-relaxed">
-                      Upload a PDF book with cover, title, and synopsis. Automatically converts into readable Text Format & Multi-Voice Audio.
+                      Upload a PDF source and choose which reader formats to offer.
                     </p>
                   </div>
                   <div className="pt-1 text-xs font-semibold text-[#E43136] inline-flex items-center gap-1">
@@ -1771,6 +1866,7 @@ export const CreateBookPage: React.FC = () => {
             </div>
           )}
         </div>
+      {coverCropDialog}
       </div>
     );
   }
@@ -3043,6 +3139,7 @@ export const CreateBookPage: React.FC = () => {
           </div>
         </div>
       )}
+      {coverCropDialog}
     </div>
   );
 };
