@@ -1,0 +1,4 @@
+# Redcover AdSense Authorized Digital Sellers (ads.txt)
+# https://redcover.app/ads.txt
+# Update with your approved Google AdSense publisher ID upon account confirmation:
+# google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0

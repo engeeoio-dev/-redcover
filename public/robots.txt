@@ -1,0 +1,24 @@
+# Redcover Robots.txt
+# https://redcover.app
+
+User-agent: *
+Allow: /
+Allow: /explore
+Allow: /book/
+Allow: /about
+Allow: /contact
+Allow: /privacy
+Allow: /terms
+Allow: /community-guidelines
+Allow: /copyright
+Allow: /search
+
+# Disallow private user hubs, personal data, and admin interfaces
+Disallow: /hub/
+Disallow: /admin
+Disallow: /notifications
+Disallow: /settings
+Disallow: /analytics
+Disallow: /read/
+
+Sitemap: https://redcover.app/sitemap.xml

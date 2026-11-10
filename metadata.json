@@ -1,0 +1,6 @@
+{
+  "name": "Redcover",
+  "description": "Read • Write • Share • Connect — Digital reading, publishing, book discovery, and social networking platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

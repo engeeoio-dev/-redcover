@@ -1,0 +1,212 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --rc-primary: #E43136;
+  --rc-primary-dark: #B9272D;
+  --rc-soft-pink: #FBE5E8;
+  --rc-pale-pink: #FFF3F4;
+  --rc-white: #FFFFFF;
+  --rc-bg: #FAFAFB;
+  --rc-surface: #FFFFFF;
+  --rc-surface-elevated: #F4F4F6;
+  --rc-light-grey: #F1F1F4;
+  --rc-border: #DDDDE3;
+  --rc-text-primary: #202020;
+  --rc-text-secondary: #6E6E77;
+  --rc-success: #268B62;
+  --rc-warning: #E6A02C;
+  --rc-error: #D9363E;
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+.dark {
+  color-scheme: dark;
+  --rc-white: #0A0A0D;
+  --rc-bg: #000000;
+  --rc-surface: #0A0A0D;
+  --rc-surface-elevated: #121217;
+  --rc-light-grey: #16161C;
+  --rc-border: #22222A;
+  --rc-text-primary: #F5F5F7;
+  --rc-text-secondary: #9E9EA8;
+  --rc-soft-pink: #281114;
+  --rc-pale-pink: #1B0C0E;
+}
+
+html,
+body {
+  font-family: var(--font-sans);
+  background-color: var(--rc-bg);
+  color: var(--rc-text-primary);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* Standard Professional Obsidian Black Theme System */
+.dark body {
+  background-color: #000000;
+  color: #F5F5F7;
+}
+
+/* 1. Midnight Theme (Member Exclusive) */
+.theme-midnight body {
+  background-color: #050811;
+  color: #E2E8F0;
+}
+.theme-midnight .dark\:bg-\[\#0F0F12\],
+.theme-midnight .dark\:bg-\[\#121216\],
+.theme-midnight .dark\:bg-\[\#141418\],
+.theme-midnight .dark\:bg-\[\#16161A\],
+.theme-midnight .dark\:bg-\[\#0E0E12\],
+.theme-midnight .dark\:bg-\[\#121217\] {
+  background-color: #0A0F1F !important;
+}
+.theme-midnight .dark\:bg-\[\#1E1E24\],
+.theme-midnight .dark\:bg-\[\#1F1F26\],
+.theme-midnight .dark\:bg-\[\#22222A\] {
+  background-color: #121B33 !important;
+}
+.theme-midnight .dark\:border-\[\#2C2C35\],
+.theme-midnight .dark\:border-\[\#22222A\] {
+  border-color: #1E294B !important;
+}
+
+/* 2. Sepia Theme (Member Exclusive) */
+.theme-sepia {
+  color-scheme: light;
+  --rc-bg: #F5EFE6;
+  --rc-surface: #FDFBF7;
+  --rc-text-primary: #382A1B;
+  --rc-text-secondary: #7A6953;
+  --rc-border: #E3D7C5;
+}
+.theme-sepia body {
+  background-color: #F5EFE6;
+  color: #382A1B;
+}
+
+/* 3. Crimson Theme (Member Exclusive) */
+.theme-crimson body {
+  background-color: #120507;
+  color: #FCE7E9;
+}
+.theme-crimson .dark\:bg-\[\#0F0F12\],
+.theme-crimson .dark\:bg-\[\#121216\],
+.theme-crimson .dark\:bg-\[\#141418\],
+.theme-crimson .dark\:bg-\[\#16161A\],
+.theme-crimson .dark\:bg-\[\#0E0E12\],
+.theme-crimson .dark\:bg-\[\#121217\] {
+  background-color: #1A080B !important;
+}
+.theme-crimson .dark\:bg-\[\#1E1E24\],
+.theme-crimson .dark\:bg-\[\#1F1F26\],
+.theme-crimson .dark\:bg-\[\#22222A\] {
+  background-color: #280D12 !important;
+}
+.theme-crimson .dark\:border-\[\#2C2C35\],
+.theme-crimson .dark\:border-\[\#22222A\] {
+  border-color: #3D141C !important;
+}
+
+/* 4. Emerald Theme (Member Exclusive) */
+.theme-emerald body {
+  background-color: #05100B;
+  color: #E2F5ED;
+}
+.theme-emerald .dark\:bg-\[\#0F0F12\],
+.theme-emerald .dark\:bg-\[\#121216\],
+.theme-emerald .dark\:bg-\[\#141418\],
+.theme-emerald .dark\:bg-\[\#16161A\],
+.theme-emerald .dark\:bg-\[\#0E0E12\],
+.theme-emerald .dark\:bg-\[\#121217\] {
+  background-color: #091C13 !important;
+}
+.theme-emerald .dark\:bg-\[\#1E1E24\],
+.theme-emerald .dark\:bg-\[\#1F1F26\],
+.theme-emerald .dark\:bg-\[\#22222A\] {
+  background-color: #0E291C !important;
+}
+.theme-emerald .dark\:border-\[\#2C2C35\],
+.theme-emerald .dark\:border-\[\#22222A\] {
+  border-color: #18422F !important;
+}
+
+/* Unify all dark surface utilities into True Black (#000000 / #0A0A0D / #121217) */
+.dark .dark\:bg-\[\#0F0F12\],
+.dark .dark\:bg-\[\#121216\],
+.dark .dark\:bg-\[\#141418\] {
+  background-color: #000000;
+}
+
+.dark .dark\:bg-\[\#16161A\],
+.dark .dark\:bg-\[\#18181F\] {
+  background-color: #0A0A0D;
+}
+
+.dark .dark\:bg-\[\#1E1E24\],
+.dark .dark\:bg-\[\#1F1F26\],
+.dark .dark\:bg-\[\#22222A\],
+.dark .dark\:bg-\[\#26262E\] {
+  background-color: #121217;
+}
+
+.dark .dark\:border-\[\#2C2C35\] {
+  border-color: #22222A;
+}
+
+.dark .dark\:divide-\[\#2C2C35\] > :not(:last-child) {
+  border-color: #22222A;
+}
+
+.dark select option {
+  background-color: #0A0A0D;
+  color: #F5F5F7;
+}
+
+/* Custom Dark Scrollbars */
+.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #24242C;
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #383844;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom subtle scrollbars for horizontal book shelves */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -1,0 +1,1948 @@
+# REDCOVER WEB PLATFORM
+## MASTER PRODUCT REQUIREMENTS, UI/UX DESIGN SYSTEM, TECHNICAL ARCHITECTURE AND DEVELOPMENT SPECIFICATION
+
+---
+
+# PART 1: PROJECT IDENTITY AND VISION
+
+## 1.1 Project Name
+
+Redcover
+
+Tagline: Read • Write • Share • Connect
+
+## 1.2 Project Overview
+
+Redcover is a modern digital reading, publishing, book discovery, and social networking platform.
+
+The platform brings together readers, independent authors, writers, publishers, and communities in one ecosystem.
+
+Users should be able to:
+
+- Discover interesting books.
+- Read books online.
+- Upload their own PDF books.
+- Write and publish original stories.
+- Follow authors and other readers.
+- Build friendships.
+- Communicate through direct messaging.
+- Review and rate books.
+- Save books to personal libraries.
+- Track reading progress.
+- Participate in a reading community.
+- Earn points and maintain reading streaks.
+- Access premium membership features.
+
+An existing Android application called Redcover is already developed.
+
+The objective is to build a professional web version of this same platform.
+
+This is NOT a separate product.
+
+It is another client of the existing Redcover ecosystem.
+
+## 1.3 Core Product Philosophy
+
+Redcover should feel like a combination of:
+
+- A premium online bookstore.
+- A digital ebook reader.
+- A publishing platform.
+- A social network for readers.
+- A community for independent writers.
+
+The interface must prioritize reading, discovery, publishing, and community engagement.
+
+The website should feel professional, trustworthy, modern, lightweight, and visually attractive.
+
+## 1.4 Target Users
+
+The website should support:
+
+1. Casual readers who discover books.
+2. Regular readers who maintain reading lists.
+3. Independent writers who publish stories.
+4. Authors who manage their books and audiences.
+5. Readers who interact with other readers.
+6. Premium members.
+7. Platform administrators.
+
+---
+
+# PART 2: CRITICAL EXISTING FIREBASE INTEGRATION
+
+THIS SECTION HAS THE HIGHEST PRIORITY.
+
+## 2.1 Existing Project Requirement
+
+An existing Redcover Android application already uses Firebase.
+
+The website MUST connect to that same existing Firebase project.
+
+Do not create a new Firebase project.
+
+Do not create a separate backend.
+
+Do not replace the existing Firebase configuration.
+
+Do not migrate existing users or books to another database.
+
+Do not delete or overwrite existing data.
+
+## 2.2 First Task: Inspect Existing Project
+
+Before developing the website, inspect all available project files and determine:
+
+1. Existing Firebase project ID.
+2. Firebase configuration.
+3. Authentication providers.
+4. Firestore database configuration.
+5. Existing collections.
+6. Existing document structures.
+7. User model.
+8. Book model.
+9. Author model.
+10. Friendship and following models.
+11. Chat and message models.
+12. Notification models.
+13. Membership model.
+14. Reading progress model.
+15. Review and rating model.
+16. Admin authorization model.
+17. Firebase Storage bucket.
+18. Existing book cover storage paths.
+19. Existing PDF storage paths.
+20. Existing Firebase Security Rules.
+
+If the Android source code is available, inspect its actual implementation instead of guessing how the backend works.
+
+If the source code is unavailable, inspect the existing project configuration and request the necessary backend documentation or access.
+
+Do not assume collection names.
+
+Do not assume document field names.
+
+Do not invent existing Firebase paths.
+
+## 2.3 Firebase Services
+
+Reuse the existing services wherever they are configured:
+
+- Firebase Authentication.
+- Cloud Firestore.
+- Firebase Storage.
+- Firebase Realtime Database, if the existing application uses it.
+- Firebase Cloud Messaging, if configured.
+- Cloud Functions, if configured.
+- Firebase App Check, if configured.
+
+Do not introduce a replacement service without explaining why it is necessary and receiving approval.
+
+## 2.4 Shared Authentication
+
+The same Redcover account must work across Android and Web.
+
+Expected behavior:
+
+1. A user registers through Android.
+2. The user can log in through Redcover Web.
+3. The website loads the existing user profile.
+4. The user can access existing books and saved items.
+5. Changes made on the website appear in Android wherever the existing data model supports synchronization.
+6. Changes made in Android appear on the website.
+
+Reuse the existing authentication providers.
+
+Implement appropriate web authentication persistence.
+
+Handle:
+- Login.
+- Registration, if supported.
+- Logout.
+- Forgot password.
+- Authentication state restoration.
+- Session expiration.
+- Unauthorized access.
+- Email verification, if configured.
+
+Do not create a second user account for an existing user.
+
+Important: Inspect provider configuration and Firebase authorized domains before implementing web authentication.
+
+## 2.5 Database Compatibility Layer
+
+Create a modular data-access layer.
+
+Suggested architecture:
+
+src/
+  services/
+    firebase/
+      firebaseConfig.ts
+      authService.ts
+      databaseService.ts
+      storageService.ts
+    repositories/
+      userRepository.ts
+      bookRepository.ts
+      socialRepository.ts
+      chatRepository.ts
+      notificationRepository.ts
+      membershipRepository.ts
+      readingRepository.ts
+
+The repository layer must adapt the existing Firebase schema to reusable frontend models.
+
+Do not change the underlying database schema simply to make the frontend easier to build.
+
+If existing Android field names differ from the website's preferred frontend names, create mapping functions.
+
+Example conceptual frontend models:
+
+User:
+- uid
+- username
+- displayName
+- email
+- photoURL
+- coverURL
+- bio
+- followersCount
+- followingCount
+- membership
+- createdAt
+
+Book:
+- id
+- title
+- description
+- authorId
+- authorName
+- coverURL
+- fileURL
+- category
+- language
+- rating
+- views
+- likes
+- publishedAt
+- status
+
+These are conceptual examples only.
+
+The actual implementation must follow the existing Firebase schema.
+
+## 2.6 Firebase Storage
+
+Use the existing Redcover Firebase Storage bucket.
+
+Book covers and uploaded book images must use Firebase Storage.
+
+Do NOT use Cloudinary.
+
+Do not duplicate existing book images.
+
+Reuse existing storage paths and download URLs wherever possible.
+
+Implement:
+- Upload progress.
+- File validation.
+- File size validation.
+- Upload cancellation where practical.
+- Upload failure recovery.
+- Secure file access.
+- Image optimization.
+- PDF access permissions.
+
+Never expose service account credentials or privileged Firebase secrets in frontend code.
+
+## 2.7 Data Synchronization
+
+The website and Android application must remain compatible.
+
+Examples:
+
+- Updating a profile on Web updates the same user document.
+- Saving a book on Web updates the same saved-book relationship.
+- Reading progress is stored in the compatible existing format.
+- Following a user uses the existing relationship structure.
+- Publishing a book makes it visible to Android where the existing application supports it.
+- Notifications use the existing notification architecture.
+
+Do not create duplicate books, users, or social relationships.
+
+Use transactions or batched writes when multiple related database operations need consistency.
+
+## 2.8 Firebase Security
+
+Security is mandatory.
+
+Implement:
+- Authentication checks.
+- Ownership validation.
+- Role-based access control.
+- Admin authorization.
+- Firestore Security Rules compatibility.
+- Storage Security Rules compatibility.
+- Input validation.
+- File upload validation.
+- Protection against unauthorized modifications.
+
+Never trust a role value stored only in frontend state.
+
+Verify administrator authorization using trusted backend-controlled data.
+
+Do not loosen existing Firebase Security Rules just to make the website work.
+
+If a rule change is necessary, propose the exact change and explain its effect before deployment.
+
+---
+
+# PART 3: TECHNOLOGY AND CODE ARCHITECTURE
+
+## 3.1 Technology Selection
+
+First inspect the existing repository.
+
+If there is already a working frontend structure, preserve compatible parts.
+
+Otherwise, use:
+
+- React.
+- TypeScript.
+- Vite.
+- Tailwind CSS.
+- React Router.
+- Firebase JavaScript SDK.
+- Lucide icons.
+- A suitable PDF rendering library if required.
+
+Use a component-based architecture.
+
+Avoid unnecessary dependencies.
+
+## 3.2 Recommended Folder Structure
+
+src/
+  app/
+    App.tsx
+    router.tsx
+    providers/
+  components/
+    common/
+    layout/
+    navigation/
+    books/
+    reader/
+    social/
+    forms/
+    modals/
+  pages/
+    Home/
+    Explore/
+    Search/
+    BookDetails/
+    Reader/
+    Hub/
+    Profile/
+    CreateBook/
+    Notifications/
+    Membership/
+    Settings/
+    Admin/
+    Auth/
+  services/
+    firebase/
+    repositories/
+  hooks/
+  contexts/
+  models/
+  utils/
+  styles/
+  assets/
+
+Adjust the structure when necessary.
+
+Keep business logic outside presentation components.
+
+Use reusable hooks for repeated functionality.
+
+## 3.3 Code Quality
+
+Requirements:
+
+- Strict TypeScript wherever practical.
+- Reusable components.
+- Meaningful component names.
+- No unnecessary duplicated code.
+- Proper error handling.
+- Consistent formatting.
+- Clear separation of concerns.
+- No hardcoded credentials.
+- No fake production data.
+- No broken imports.
+- No unused dependencies.
+- No placeholder buttons in completed features.
+
+---
+
+# PART 4: COMPLETE BRAND DESIGN SYSTEM
+
+## 4.1 Visual Direction
+
+Follow the provided Redcover design reference.
+
+The website should use:
+
+- Modern editorial design.
+- Minimalist layouts.
+- Soft pink surfaces.
+- Strong red highlights.
+- Clean white backgrounds.
+- Premium book presentation.
+- Rounded cards.
+- Subtle shadows.
+- Comfortable spacing.
+
+Avoid:
+- Excessive gradients.
+- Too many colors.
+- Unnecessary glass effects.
+- Excessive animations.
+- Overcrowded interfaces.
+- Oversized decorative elements.
+- Generic admin-dashboard styling on the homepage.
+
+## 4.2 Color Palette
+
+Primary Red:
+#E43136
+
+Dark Red:
+#B9272D
+
+Soft Pink:
+#FBE5E8
+
+Pale Pink:
+#FFF3F4
+
+White:
+#FFFFFF
+
+Background:
+#FAFAFB
+
+Light Grey:
+#F1F1F4
+
+Border:
+#DDDDE3
+
+Primary Text:
+#202020
+
+Secondary Text:
+#777780
+
+Success:
+#268B62
+
+Warning:
+#E6A02C
+
+Error:
+#D9363E
+
+Use CSS variables so the theme can be changed globally.
+
+## 4.3 Typography
+
+Use a modern, readable font such as Inter.
+
+Typography hierarchy:
+
+- Main page headings: 28–36px desktop.
+- Section headings: 21–26px.
+- Card titles: 15–18px.
+- Body text: 14–16px.
+- Metadata: 12–14px.
+
+Typography must scale responsively.
+
+## 4.4 Components
+
+Create a consistent component library:
+
+- PrimaryButton.
+- SecondaryButton.
+- IconButton.
+- BookCard.
+- BookCover.
+- CategoryChip.
+- SectionHeader.
+- SearchInput.
+- UserAvatar.
+- UserCard.
+- RatingDisplay.
+- ProgressBar.
+- NotificationBadge.
+- EmptyState.
+- LoadingSkeleton.
+- ConfirmationModal.
+- ToastNotification.
+- Pagination.
+- DropdownMenu.
+
+Each component must support consistent spacing, typography, colors, and responsive behavior.
+
+## 4.5 Buttons
+
+Primary buttons:
+Red background, white text.
+
+Secondary buttons:
+White background, red border, red text.
+
+Ghost buttons:
+Transparent background with subtle hover state.
+
+Disabled buttons:
+Muted colors and non-interactive state.
+
+All buttons must have:
+- Hover states.
+- Focus states.
+- Loading states when relevant.
+- Disabled states.
+- Touch-friendly dimensions.
+
+## 4.6 Cards
+
+Book cards:
+- Consistent cover aspect ratio.
+- Rounded corners.
+- Subtle shadows.
+- Title and author.
+- Rating and engagement information.
+- Clickable details navigation.
+
+User cards:
+- Profile image.
+- Username.
+- Display name.
+- Follow button.
+- Optional message action.
+
+Avoid inconsistent card heights.
+
+---
+
+# PART 5: GLOBAL WEBSITE LAYOUT
+
+## 5.1 Desktop Header
+
+Create a horizontal sticky header.
+
+Left:
+Redcover logo.
+
+Navigation:
+- Home.
+- Explore.
+- Hub.
+- Create.
+
+Center/right:
+- Search bar.
+
+Right:
+- Apps/Hub shortcut.
+- Notifications.
+- User avatar.
+- Account dropdown.
+
+The header must have:
+- White background.
+- Subtle bottom border.
+- Proper spacing.
+- Active route indication.
+- Responsive behavior.
+
+## 5.2 Important Homepage Layout Decision
+
+DO NOT ADD A RIGHT-SIDE PROFILE SIDEBAR.
+
+The homepage must use the entire available content width.
+
+The user profile should be accessible through the header avatar and a separate profile page.
+
+The main content should remain focused on book discovery.
+
+## 5.3 Mobile Navigation
+
+On mobile, use a compact bottom navigation:
+
+1. Home.
+2. Search.
+3. Create.
+4. Hub.
+5. Profile.
+
+Use safe-area padding.
+
+Ensure the navigation does not cover the last content card.
+
+The Create button can receive visual emphasis using the primary red color.
+
+## 5.4 Responsive Breakpoints
+
+Use responsive layouts for:
+
+- Small mobile: 320–374px.
+- Standard mobile: 375–767px.
+- Tablet: 768–1023px.
+- Desktop: 1024–1439px.
+- Large desktop: 1440px and above.
+
+These are starting points, not rigid limitations.
+
+Avoid horizontal overflow.
+
+Use fluid spacing and flexible grids.
+
+---
+
+# PART 6: HOMEPAGE – COMPLETE SPECIFICATION
+
+The homepage is the most important public page.
+
+It must create an attractive first impression.
+
+## 6.1 Featured Story Banner
+
+Place a large featured story banner below the header.
+
+Desktop:
+- Wide horizontal banner.
+- Approximately 300–340px height.
+- Left side contains text and buttons.
+- Right side contains a large scenic book image or book artwork.
+- Soft pink gradient or background transition.
+
+Mobile:
+- Stacked content.
+- Image remains prominent.
+- Buttons remain accessible.
+- Banner height adapts to screen size.
+
+Information:
+- FEATURED STORY label.
+- Book title.
+- Short description.
+- Read Now.
+- Save.
+- Carousel indicators.
+
+Functionality:
+- Read Now navigates to the book details or reader depending on access rules.
+- Save adds the book to the user's library.
+- Indicators change featured content.
+- Carousel should support keyboard and touch interaction.
+
+Use actual featured books from Firebase when available.
+
+## 6.2 Explore Categories
+
+Create horizontal category chips.
+
+Categories:
+- All.
+- Romance.
+- Business.
+- Finance.
+- Self Help.
+- Productivity.
+- Education.
+- More.
+
+Requirements:
+- Active category highlighted red.
+- Smooth horizontal scrolling.
+- Category selection filters book content.
+- More opens additional categories.
+- Categories should be dynamic if the backend supports it.
+
+## 6.3 Popular on Redcover
+
+Create a horizontal book carousel or responsive grid.
+
+Each card includes:
+- Cover image.
+- Title.
+- Author.
+- Rating.
+- Read count.
+- Likes.
+
+Desktop:
+Show approximately 5–6 cards depending on viewport width.
+
+Tablet:
+Show 3–4 cards.
+
+Mobile:
+Show 1.5–2 cards with horizontal scrolling.
+
+Include View All.
+
+## 6.4 Currently Reading
+
+Display a compact full-width reading-progress section.
+
+Each item includes:
+- Book cover.
+- Title.
+- Reading percentage.
+- Current chapter.
+- Progress bar.
+- Continue button.
+
+Only show the authenticated user's reading activity.
+
+If no reading activity exists, show a friendly empty state with Explore Books.
+
+## 6.5 Recommended for You
+
+Use available reading history, saved categories, and engagement information to produce relevant recommendations.
+
+If recommendation infrastructure does not exist, begin with transparent category-based recommendations.
+
+Do not claim that an AI recommendation engine exists unless it has actually been implemented.
+
+## 6.6 Trending Stories
+
+Show popular and recently active books.
+
+Use backend-supported engagement data.
+
+Include View All.
+
+## 6.7 Recently Added
+
+Show newly published books in descending publication order.
+
+Use pagination or efficient queries.
+
+## 6.8 Homepage Loading and Empty States
+
+While content loads:
+- Show skeleton cards.
+- Preserve page structure.
+- Avoid large layout shifts.
+
+If no content is available:
+- Show an informative empty state.
+- Provide navigation to Explore.
+- Do not display broken image placeholders.
+
+---
+
+# PART 7: EXPLORE PAGE
+
+## 7.1 Page Structure
+
+Header:
+Explore Books.
+
+Below:
+- Search field.
+- Category filters.
+- Genre filters.
+- Sorting options.
+- Book result count.
+- Responsive book grid.
+
+## 7.2 Filters
+
+Support available categories such as:
+
+- Romance.
+- Business.
+- Finance.
+- Self Help.
+- Productivity.
+- Education.
+- Fiction.
+- Mystery.
+- Thriller.
+- Personal Development.
+- Other existing categories.
+
+Do not create duplicate category systems if the backend already provides categories.
+
+## 7.3 Sorting
+
+Provide:
+- Most Popular.
+- Highest Rated.
+- Most Viewed.
+- Most Liked.
+- Recently Published.
+- Alphabetical.
+
+Only use sort fields that are actually supported by the backend.
+
+## 7.4 Search
+
+Search across:
+- Book titles.
+- Author names.
+- Genres.
+- Descriptions where practical.
+
+Debounce search input.
+
+Show loading, no-results, and error states.
+
+If Firestore alone cannot support the desired full-text search efficiently, explain the limitations and propose an optional search service instead of implementing an inefficient full collection scan.
+
+## 7.5 Pagination
+
+Use cursor-based pagination where supported.
+
+Avoid loading hundreds or thousands of books at once.
+
+---
+
+# PART 8: BOOK DETAILS PAGE
+
+Every book should have its own shareable route.
+
+Example route:
+ /book/:bookId
+
+## 8.1 Main Layout
+
+Desktop:
+- Book cover on the left.
+- Book information on the right.
+- Full-width description and additional sections below.
+
+Mobile:
+- Cover at the top.
+- Title and details below.
+- Full-width action buttons.
+
+## 8.2 Book Information
+
+Display:
+- Book cover.
+- Title.
+- Author.
+- Genre.
+- Language.
+- Short description.
+- Full description.
+- Rating.
+- Reviews count.
+- Views.
+- Likes.
+- Publication date.
+- Book format.
+
+## 8.3 Actions
+
+Read Now:
+Open the reader.
+
+Save:
+Add to personal library.
+
+Like:
+Update the supported engagement relationship.
+
+Share:
+Use native share functionality where available, otherwise copy the book URL.
+
+Review:
+Allow authenticated users to submit a review.
+
+Report:
+Allow users to report inappropriate books.
+
+## 8.4 Author Information
+
+Display:
+- Author avatar.
+- Author name.
+- Username.
+- Short bio.
+- Follow button.
+- View Profile.
+
+## 8.5 Reviews
+
+Display:
+- Average rating.
+- Rating distribution if data supports it.
+- Review text.
+- Reviewer profile.
+- Review date.
+
+Prevent duplicate reviews where the existing rules require one review per user/book.
+
+## 8.6 Related Books
+
+Show related books based on category, author, or supported recommendation data.
+
+---
+
+# PART 9: READING EXPERIENCE
+
+This section must receive special attention.
+
+The reader should be comfortable for long reading sessions.
+
+## 9.1 Reader Interface
+
+Create a distraction-free interface.
+
+Top toolbar:
+- Back.
+- Book title.
+- Chapter title.
+- Font controls.
+- Theme controls.
+- Bookmark.
+- Reading settings.
+
+Main area:
+- Centered reading column.
+- Comfortable line length.
+- Good typography.
+- Proper paragraph spacing.
+
+Bottom:
+- Previous Chapter.
+- Next Chapter.
+- Progress indicator.
+
+## 9.2 Reading Modes
+
+Support:
+- Light Mode.
+- Dark Mode.
+- Sepia Mode, if practical.
+
+## 9.3 Typography Controls
+
+Allow:
+- Increase font size.
+- Decrease font size.
+- Change line spacing.
+- Change reading width where practical.
+
+Persist user preferences locally or through the existing compatible profile settings.
+
+## 9.4 Reading Progress
+
+Automatically save:
+- Book ID.
+- Current chapter.
+- Reading position.
+- Percentage.
+- Last reading time.
+
+Use debounced updates or appropriate batching to avoid excessive database writes.
+
+Do not save progress on every keystroke or scroll event.
+
+Use a sensible saving interval and save on meaningful navigation events.
+
+## 9.5 Bookmarks and Highlights
+
+Users should be able to:
+- Bookmark a reading position.
+- Add highlights where supported.
+- Add private notes.
+- Reopen saved reading positions.
+
+Store these using the existing data structures if available.
+
+## 9.6 PDF Reading
+
+Inspect the existing Android PDF reading implementation.
+
+Determine how PDF files are stored and how access is authorized.
+
+Implement a compatible web PDF viewer.
+
+Requirements:
+- Page navigation.
+- Zoom.
+- Fit width.
+- Progress saving.
+- Full-screen mode.
+- Download controls only when permitted.
+
+Do not expose private PDFs through public URLs.
+
+Do not assume all books are PDFs.
+
+---
+
+# PART 10: REDCOVER HUB
+
+Create a dedicated community dashboard.
+
+Suggested route:
+ /hub
+
+Hub should have clearly separated tabs.
+
+## 10.1 Direct Chats
+
+Route:
+ /hub/chats
+
+Features:
+- Existing conversations.
+- Friend avatars.
+- Names.
+- Last message preview.
+- Message time.
+- Unread indicators.
+- Online indicator if existing privacy settings permit it.
+
+Chat interface:
+- Conversation header.
+- Message list.
+- Message composer.
+- Send button.
+- Timestamps.
+- Message status if supported.
+- Empty conversation state.
+
+Use the existing messaging backend.
+
+Do not create a new chat collection unless no compatible messaging structure exists and approval has been obtained.
+
+## 10.2 Your Books
+
+Route:
+ /hub/books
+
+Subsections:
+
+- My Uploads.
+- Saved & Marked.
+- Reviewed.
+- Drafts.
+- Published.
+
+Only include subsections supported by the existing backend.
+
+My Uploads:
+Show books created by the authenticated user.
+
+Saved & Marked:
+Show saved books and bookmarks.
+
+Reviewed:
+Show reviews created by the user.
+
+Drafts:
+Show unpublished stories where supported.
+
+Published:
+Show publicly available books.
+
+## 10.3 Social
+
+Route:
+ /hub/social
+
+Subsections:
+
+- Friends.
+- Requests.
+- Sent Requests.
+- Blocked.
+
+Friends:
+Show current friends and supported relationship status.
+
+Requests:
+Accept or reject incoming requests.
+
+Sent Requests:
+Cancel outgoing requests.
+
+Blocked:
+Show blocked accounts and provide unblock functionality if authorized.
+
+Important:
+Inspect the existing relationship model.
+
+Do not confuse following, friendship, and messaging permissions.
+
+A follow relationship must not automatically be treated as friendship unless that is how the existing app works.
+
+## 10.4 History
+
+Route:
+ /hub/history
+
+Include:
+- Recently read.
+- Recently viewed.
+- Reading activity.
+- Previously opened books.
+
+Respect privacy settings.
+
+---
+
+# PART 11: BOOK PUBLISHING SYSTEM
+
+## 11.1 Create Page
+
+Route:
+ /create
+
+Show two major options:
+
+1. Upload PDF.
+2. Write a Story.
+
+Use large, visually attractive selection cards.
+
+## 11.2 PDF Upload
+
+Form fields:
+- Book title.
+- Description.
+- Category.
+- Language.
+- Cover image.
+- PDF document.
+- Author information.
+
+Validation:
+- Required title.
+- Valid PDF format.
+- Allowed file size.
+- Valid cover image.
+- Required metadata.
+
+Show:
+- Upload progress.
+- Success state.
+- Error state.
+- Retry option.
+
+Upload files to the existing Firebase Storage bucket.
+
+Store metadata using the existing book model.
+
+## 11.3 Story Editor
+
+Create a clean writing interface.
+
+Editor layout:
+- Title field.
+- Description.
+- Chapter list.
+- Writing area.
+- Save Draft.
+- Preview.
+- Publish.
+
+Chapter management:
+- Add chapter.
+- Rename chapter.
+- Edit chapter.
+- Reorder chapters if supported.
+- Delete chapter with confirmation.
+
+## 11.4 Draft System
+
+Autosave drafts after a suitable delay.
+
+Show save status:
+- Saving.
+- Saved.
+- Failed to save.
+
+Avoid losing unsaved content when navigating.
+
+## 11.5 Publishing
+
+Before publication:
+- Validate metadata.
+- Validate chapter content.
+- Validate cover.
+- Display publishing confirmation.
+
+Only publish after the backend successfully confirms the operation.
+
+Respect the existing publishing approval and moderation system, if one exists.
+
+---
+
+# PART 12: USER PROFILES
+
+Route:
+ /profile/:userId
+
+## 12.1 Profile Header
+
+Display:
+- Cover image.
+- Avatar.
+- Display name.
+- Username.
+- Bio.
+- Membership badge where applicable.
+- Follow or relationship action.
+
+## 12.2 Profile Statistics
+
+Display available information:
+- Published books.
+- Followers.
+- Following.
+- Reading streak.
+- Points.
+
+Never invent statistics.
+
+## 12.3 Profile Tabs
+
+- Overview.
+- Published Books.
+- Reviews.
+- Reading Activity, only if public.
+- About.
+
+## 12.4 Edit Profile
+
+Users can update their own:
+- Avatar.
+- Cover image.
+- Display name.
+- Bio.
+- Supported profile information.
+
+Use Firebase Storage for profile images.
+
+Validate updates and permissions.
+
+## 12.5 Privacy
+
+Respect:
+- Blocked users.
+- Private profile settings.
+- Online status settings.
+- Reading activity visibility.
+
+Do not reveal private email addresses or private reading data on public profiles.
+
+---
+
+# PART 13: SOCIAL SYSTEM
+
+## 13.1 Follow System
+
+Support:
+- Follow.
+- Unfollow.
+- Followers list.
+- Following list.
+
+Prevent duplicate relationships.
+
+## 13.2 Friendship System
+
+Support the existing friendship workflow:
+- Send request.
+- Accept request.
+- Reject request.
+- Cancel request.
+- Remove friend.
+- Block user.
+
+## 13.3 User Discovery
+
+Provide:
+- Suggested readers.
+- Search users.
+- Author discovery.
+- Community members.
+
+Use available backend data.
+
+## 13.4 Online Status
+
+Display online status only if:
+- The existing backend supports it.
+- The user has enabled visibility.
+- The viewer is permitted to see it.
+
+Do not expose presence information to unauthorized users.
+
+---
+
+# PART 14: NOTIFICATIONS
+
+Route:
+ /notifications
+
+Notification categories:
+- All.
+- Social.
+- Messages.
+- Books.
+- Membership.
+
+Examples:
+- Friend request.
+- Friend request accepted.
+- New follower.
+- New message.
+- Book published.
+- Book review.
+- Book engagement.
+- Membership updates.
+- Reading reminders.
+
+Features:
+- Unread indicator.
+- Mark as read.
+- Mark all as read if supported.
+- Notification navigation.
+- Empty state.
+
+Reuse the existing notification infrastructure.
+
+If push notifications are already configured, inspect the existing FCM setup.
+
+Do not promise browser push notifications until the required permissions, service worker, and Firebase configuration are implemented.
+
+---
+
+# PART 15: MEMBERSHIP AND MONETIZATION
+
+## 15.1 Membership Plans
+
+Existing membership concept:
+
+Free Member.
+
+Premium Member:
+₹79.
+
+Inspect the existing Android application to discover:
+- Billing configuration.
+- Membership duration.
+- Subscription status.
+- Benefits.
+- Expiration behavior.
+- Existing payment provider.
+
+Do not assume ₹79 is monthly unless the existing product configuration confirms it.
+
+## 15.2 Membership Page
+
+Route:
+ /membership
+
+Display:
+- Current plan.
+- Available plans.
+- Benefits.
+- Expiry date.
+- Subscription history.
+- Upgrade action.
+
+## 15.3 Payment Integration
+
+Reuse an existing payment system if available.
+
+If no web-compatible payment system exists:
+- Propose a secure web payment architecture.
+- Explain the required backend verification.
+- Ask for approval before implementing a new provider.
+
+Never trust a client-side payment success response.
+
+Only activate membership after verified server-side payment confirmation.
+
+## 15.4 Advertisements
+
+If advertising is enabled:
+- Keep advertisements unobtrusive.
+- Avoid disrupting reading.
+- Respect consent and platform requirements.
+- Do not invent rewarded-ad rewards or claim an ad was completed without verification.
+
+---
+
+# PART 16: SETTINGS
+
+Route:
+ /settings
+
+Sections:
+
+Account:
+- Personal Information.
+- Membership Plans.
+
+Preferences:
+- Show Online Status.
+- Reading Reminders.
+- App Theme.
+
+App Information:
+- Notification Settings.
+- Privacy Policy.
+- Terms & Conditions.
+- Help & Support.
+
+Account:
+- Sign Out.
+
+Administration:
+- Admin Control Center, only for authorized administrators.
+
+Use the existing app's settings behavior and compatible data structures.
+
+---
+
+# PART 17: ADMIN CONTROL CENTER
+
+Route:
+ /admin
+
+This area must be protected.
+
+## 17.1 Dashboard
+
+Display:
+- Total registered users.
+- Total books.
+- Published books.
+- Pending books.
+- Active memberships.
+- New users.
+- Platform activity.
+
+Use real backend data.
+
+## 17.2 User Management
+
+Features:
+- Search users.
+- View user details.
+- View membership.
+- Review reported accounts.
+- Suspend or restrict users only if supported by trusted backend operations.
+
+## 17.3 Book Management
+
+Features:
+- Search books.
+- View details.
+- Review publication status.
+- Moderate reported content.
+- Remove content when authorized.
+- Manage categories.
+
+## 17.4 Reports
+
+Show:
+- Reported books.
+- Reported users.
+- Report reasons.
+- Report status.
+- Moderation actions.
+
+## 17.5 Analytics
+
+Display supported statistics using efficient aggregated queries or trusted backend summaries.
+
+Avoid loading the entire database to calculate totals.
+
+## 17.6 Admin Security
+
+The frontend must not be the source of admin authorization.
+
+Use trusted backend-controlled roles and existing Firebase authorization mechanisms.
+
+Never expose privileged credentials.
+
+---
+
+# PART 18: SEARCH SYSTEM
+
+Create a global search experience.
+
+Search categories:
+- Books.
+- Authors.
+- Users.
+- Genres.
+
+Features:
+- Search suggestions.
+- Recent searches.
+- Clear history.
+- Popular searches where available.
+- Search results tabs.
+- No-results page.
+
+Use debouncing.
+
+Use efficient indexed queries.
+
+If full-text search requires an external service, explain the cost and integration before introducing it.
+
+---
+
+# PART 19: RESPONSIVE DESIGN
+
+Every page must be responsive.
+
+## Desktop
+
+Use:
+- Full-width content.
+- Spacious sections.
+- Horizontal book cards.
+- Multi-column grids.
+- Large featured banner.
+- Full navigation.
+
+Do not add a right-side profile sidebar on the homepage.
+
+## Tablet
+
+Use:
+- Flexible grid columns.
+- Adapted header.
+- Touch-friendly controls.
+- Balanced whitespace.
+
+## Mobile
+
+Use:
+- Compact header.
+- Bottom navigation.
+- Single-column page sections where appropriate.
+- Horizontal book carousels.
+- Responsive featured banner.
+- Readable book details.
+- Full-width action buttons.
+
+## Testing Devices
+
+Test representative viewport sizes:
+- 320 × 640.
+- 360 × 800.
+- 390 × 844.
+- 430 × 932.
+- 768 × 1024.
+- 1024 × 768.
+- 1366 × 768.
+- 1440 × 900.
+- 1920 × 1080.
+
+These are test viewports, not a substitute for fluid responsive design.
+
+Check:
+- Horizontal overflow.
+- Cropped text.
+- Overlapping cards.
+- Broken images.
+- Navigation collisions.
+- Mobile safe areas.
+- Keyboard accessibility.
+
+---
+
+# PART 20: ACCESSIBILITY AND USER EXPERIENCE
+
+Implement:
+- Semantic HTML.
+- Keyboard navigation.
+- Visible focus states.
+- Accessible labels.
+- Proper color contrast.
+- Alternative image text.
+- Form validation messages.
+- Accessible dialogs.
+- Reduced-motion support.
+
+Important actions must be accessible without relying exclusively on color.
+
+Do not use tiny text for essential information.
+
+---
+
+# PART 21: PERFORMANCE
+
+Optimize:
+
+1. Book cover loading.
+2. Lazy-loaded images.
+3. Responsive images where practical.
+4. Code splitting.
+5. Route-based lazy loading.
+6. Firestore query efficiency.
+7. Pagination.
+8. Avoiding unnecessary re-renders.
+9. Caching suitable public data.
+10. PDF rendering performance.
+
+Use loading skeletons.
+
+Avoid large blocking assets.
+
+Do not download every book image on the homepage at once.
+
+Avoid excessive Firestore listeners.
+
+Unsubscribe from real-time listeners when components unmount.
+
+---
+
+# PART 22: SEO AND SHARING
+
+Implement:
+- Page titles.
+- Meta descriptions.
+- Canonical URLs where appropriate.
+- Open Graph metadata.
+- Shareable book URLs.
+- Author profile URLs.
+- Sitemap.
+- Robots configuration.
+
+Public book and author pages should be discoverable by search engines.
+
+Authenticated pages and private user content must not be exposed through indexing.
+
+For dynamically rendered pages, select a rendering approach that supports reliable social previews and search indexing.
+
+---
+
+# PART 23: ERROR HANDLING
+
+Every major feature needs:
+
+Loading state:
+Show skeletons or progress indicators.
+
+Empty state:
+Explain what is missing and provide a useful action.
+
+Error state:
+Show a clear message and retry option where possible.
+
+Authentication state:
+Redirect unauthorized users appropriately.
+
+Network failure:
+Do not lose unsaved writing or form data unnecessarily.
+
+Upload failure:
+Allow safe retry without creating duplicate book records.
+
+Database failure:
+Show an error without pretending the operation succeeded.
+
+Never use fake success notifications.
+
+---
+
+# PART 24: DEVELOPMENT PHASES
+
+Do not attempt to implement the entire system in one uncontrolled generation.
+
+Develop incrementally.
+
+## PHASE 0: PROJECT AUDIT
+
+Inspect:
+- Repository.
+- Existing Android source code if available.
+- Firebase project.
+- Existing frontend.
+- Dependencies.
+- Authentication.
+- Database models.
+- Storage paths.
+- Security Rules.
+
+Deliver:
+- Existing architecture summary.
+- Firebase compatibility report.
+- Existing collection mapping.
+- Missing features report.
+- Proposed web architecture.
+- Development plan.
+
+Do not make destructive changes.
+
+## PHASE 1: DESIGN SYSTEM AND HOMEPAGE
+
+Build:
+- Global theme.
+- Typography.
+- Buttons.
+- Cards.
+- Header.
+- Navigation.
+- Homepage.
+- Responsive layout.
+
+Use real existing Firebase data when available.
+
+Temporary sample data may be used only for visual development and must be clearly isolated.
+
+## PHASE 2: AUTHENTICATION
+
+Implement:
+- Login.
+- Registration where supported.
+- Password reset.
+- Session persistence.
+- User profile loading.
+- Protected routes.
+
+Test the same account on Android and Web.
+
+## PHASE 3: EXPLORE AND BOOK DETAILS
+
+Implement:
+- Search.
+- Categories.
+- Filters.
+- Sorting.
+- Book cards.
+- Book details.
+- Reviews.
+- Save and like actions.
+
+## PHASE 4: READING ENGINE
+
+Implement:
+- Reader.
+- PDF support.
+- Chapter navigation.
+- Reading progress.
+- Bookmarks.
+- Reading settings.
+
+## PHASE 5: HUB AND SOCIAL
+
+Implement:
+- Direct Chats.
+- Your Books.
+- Friends.
+- Requests.
+- Following.
+- History.
+- Notifications.
+
+## PHASE 6: PUBLISHING
+
+Implement:
+- PDF uploads.
+- Story editor.
+- Chapter management.
+- Drafts.
+- Publishing.
+- Author profiles.
+
+## PHASE 7: MEMBERSHIP AND SETTINGS
+
+Implement:
+- Membership.
+- Subscription status.
+- Payment integration after approval.
+- Settings.
+- Privacy.
+- Theme preferences.
+
+## PHASE 8: ADMINISTRATION
+
+Implement:
+- Admin dashboard.
+- User management.
+- Book management.
+- Reports.
+- Moderation.
+- Analytics.
+
+## PHASE 9: QUALITY ASSURANCE
+
+Test:
+- Firebase authentication.
+- Existing Android user login.
+- Existing book access.
+- Book uploads.
+- Storage permissions.
+- Reading progress synchronization.
+- Social relationships.
+- Messaging.
+- Admin access.
+- Mobile responsiveness.
+- Security.
+
+## PHASE 10: DEPLOYMENT
+
+Prepare:
+- Production build.
+- Environment configuration.
+- Hosting configuration.
+- Domain configuration.
+- SSL.
+- Routing fallback.
+- SEO.
+- Error monitoring.
+
+Use existing hosting infrastructure if appropriate.
+
+Do not deploy without approval.
+
+---
+
+# PART 25: ACCEPTANCE CRITERIA
+
+The project is not considered complete merely because the homepage looks attractive.
+
+The following criteria must be met.
+
+DESIGN:
+- Matches the Redcover visual identity.
+- No right-side profile sidebar on homepage.
+- Responsive across desktop, tablet, and mobile.
+- Consistent spacing and typography.
+- No broken images.
+
+FIREBASE:
+- Uses the existing Firebase project.
+- Uses existing authentication.
+- Uses existing Firestore structures.
+- Uses existing Firebase Storage.
+- No duplicate users or books.
+- No accidental data migration.
+
+FUNCTIONALITY:
+- Authentication works.
+- Search works.
+- Book discovery works.
+- Book details work.
+- Save and like actions work.
+- Reader works for supported book formats.
+- Reading progress persists.
+- Publishing works.
+- Social functionality works where supported.
+- Chat works where supported.
+- Settings work.
+- Admin authorization works.
+
+QUALITY:
+- No major console errors.
+- No broken routes.
+- No nonfunctional primary buttons.
+- No unauthorized database operations.
+- No accidental exposure of private information.
+- Proper error handling.
+- Production build succeeds.
+
+COMPATIBILITY:
+- Android and Web use the same Firebase project.
+- Existing accounts remain accessible.
+- Existing data remains intact.
+- Shared features use compatible models.
+
+---
+
+# PART 26: STRICT DEVELOPMENT RULES
+
+1. Never create a second Firebase project.
+2. Never replace existing Firebase credentials.
+3. Never delete existing Android functionality.
+4. Never migrate existing users without approval.
+5. Never duplicate existing collections unnecessarily.
+6. Never use Cloudinary for book images.
+7. Never hardcode fake production statistics.
+8. Never implement fake payment success.
+9. Never expose private user information.
+10. Never make the homepage look like an admin dashboard.
+11. Never add a right-side profile sidebar to the homepage.
+12. Never leave important buttons nonfunctional while claiming completion.
+13. Never loosen database security rules without approval.
+14. Never silently change the existing backend schema.
+15. Never claim a feature is complete without testing it.
+
+When a requested feature cannot be implemented using the existing backend, document the limitation and propose a compatible solution.
+
+---
+
+# PART 27: HOW TO WORK WITH THE PROJECT OWNER
+
+Work incrementally.
+
+After every major phase, report:
+
+1. What has been completed.
+2. Files created.
+3. Files modified.
+4. Firebase services reused.
+5. Existing collections accessed.
+6. New dependencies introduced.
+7. Known limitations.
+8. Tests performed.
+9. Remaining work.
+
+Do not overwhelm the project with unnecessary rewrites.
+
+Preserve working code.
+
+Before making destructive modifications, request approval.
+
+Maintain a clear development log.
+
+---
+
+# FINAL PRODUCT GOAL
+
+Build Redcover as a complete, professional, responsive web platform that feels like the natural web extension of the existing Redcover Android application.
+
+The experience should be beautiful enough to attract readers, simple enough for new users, powerful enough for authors, and reliable enough for long-term production use.
+
+The existing Firebase backend is the foundation of the platform.
+
+The website must integrate with that foundation rather than replacing it.
+
+Prioritize:
+
+1. Existing Firebase compatibility.
+2. Premium UI/UX.
+3. Reliable functionality.
+4. Mobile responsiveness.
+5. Data security.
+6. Performance.
+7. Maintainability.
+8. Scalable architecture.
+
+START WITH PHASE 0: AUDIT THE EXISTING PROJECT.
+
+Do not begin by generating random frontend components.
+
+First understand the existing Redcover ecosystem, then build the web platform around it.

@@ -1,0 +1,573 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public profile for a Redcover reader or author (PII isolated in private subcollection).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "username": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "photoURL": { "type": "string", "maxLength": 1000 },
+        "coverURL": { "type": "string", "maxLength": 1000 },
+        "bio": { "type": "string", "maxLength": 1000 },
+        "followersCount": { "type": "integer" },
+        "followingCount": { "type": "integer" },
+        "booksCount": { "type": "integer" },
+        "streakDays": { "type": "integer" },
+        "points": { "type": "integer" },
+        "membershipPlan": { "type": "string", "enum": ["free", "premium"] },
+        "isOnline": { "type": "boolean" },
+        "showOnlineStatus": { "type": "boolean" },
+        "publicActivity": { "type": "boolean" },
+        "role": { "type": "string", "enum": ["user", "author", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "username",
+        "displayName",
+        "photoURL",
+        "coverURL",
+        "bio",
+        "followersCount",
+        "followingCount",
+        "booksCount",
+        "streakDays",
+        "points",
+        "membershipPlan",
+        "isOnline",
+        "showOnlineStatus",
+        "publicActivity",
+        "role",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Private PII and account settings for a Redcover user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 254 },
+        "readingReminders": { "type": "boolean" },
+        "notificationSettings": { "type": "string", "enum": ["all", "important", "none"] },
+        "theme": { "type": "string", "enum": ["light", "dark", "sepia"] },
+        "subscriptionExpiry": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "readingReminders", "notificationSettings", "theme", "updatedAt"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "A book or story published or drafted on Redcover.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 5000 },
+        "shortDescription": { "type": "string", "maxLength": 400 },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "authorUsername": { "type": "string", "maxLength": 80 },
+        "authorAvatar": { "type": "string", "maxLength": 1000 },
+        "coverURL": { "type": "string", "maxLength": 1000 },
+        "fileURL": { "type": "string", "maxLength": 1000 },
+        "format": { "type": "string", "enum": ["story", "pdf"] },
+        "category": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "language": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "rating": { "type": "number" },
+        "reviewsCount": { "type": "integer" },
+        "views": { "type": "integer" },
+        "likes": { "type": "integer" },
+        "saves": { "type": "integer" },
+        "chaptersCount": { "type": "integer" },
+        "featured": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["draft", "published", "pending", "removed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "shortDescription",
+        "authorId",
+        "authorName",
+        "authorUsername",
+        "authorAvatar",
+        "coverURL",
+        "fileURL",
+        "format",
+        "category",
+        "language",
+        "rating",
+        "reviewsCount",
+        "views",
+        "likes",
+        "saves",
+        "chaptersCount",
+        "featured",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Chapter": {
+      "title": "Chapter",
+      "description": "A chapter inside a book on Redcover.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookStatus": { "type": "string", "enum": ["draft", "published", "pending", "removed"] },
+        "chapterNumber": { "type": "integer" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "bookId",
+        "authorId",
+        "bookStatus",
+        "chapterNumber",
+        "title",
+        "content",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User review and rating for a book.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "userAvatar": { "type": "string", "maxLength": 1000 },
+        "rating": { "type": "integer" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "visibility": { "type": "string", "enum": ["public", "hidden"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "bookId",
+        "bookTitle",
+        "userId",
+        "userName",
+        "userAvatar",
+        "rating",
+        "text",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ReadingProgress": {
+      "title": "ReadingProgress",
+      "description": "Synchronized reading progress and bookmark position for a user on a book.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "bookCover": { "type": "string", "maxLength": 1000 },
+        "bookAuthor": { "type": "string", "maxLength": 120 },
+        "currentChapter": { "type": "integer" },
+        "totalChapters": { "type": "integer" },
+        "percentage": { "type": "integer" },
+        "bookmarkNote": { "type": "string", "maxLength": 5000 },
+        "isBookmarked": { "type": "boolean" },
+        "isPublic": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "userId",
+        "bookId",
+        "bookTitle",
+        "bookCover",
+        "bookAuthor",
+        "currentChapter",
+        "totalChapters",
+        "percentage",
+        "bookmarkNote",
+        "isBookmarked",
+        "isPublic",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SavedBook": {
+      "title": "SavedBook",
+      "description": "Book saved to a user's library.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "bookId", "createdAt"]
+    },
+    "BookLike": {
+      "title": "BookLike",
+      "description": "User like on a book.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetAuthorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "bookId", "targetAuthorId", "createdAt"]
+    },
+    "Follow": {
+      "title": "Follow",
+      "description": "Follower-following relationship between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "followerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "followingId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "followerName": { "type": "string", "maxLength": 100 },
+        "followingName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "followerId", "followingId", "followerName", "followingName", "createdAt"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Friend request, active friendship, or blocked state between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "requesterId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "receiverId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "requesterName": { "type": "string", "maxLength": 100 },
+        "receiverName": { "type": "string", "maxLength": 100 },
+        "requesterAvatar": { "type": "string", "maxLength": 1000 },
+        "receiverAvatar": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "blocked"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "requesterId",
+        "receiverId",
+        "requesterName",
+        "receiverName",
+        "requesterAvatar",
+        "receiverAvatar",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Direct messaging conversation thread between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "participantA": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "participantB": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "participantAName": { "type": "string", "maxLength": 100 },
+        "participantBName": { "type": "string", "maxLength": 100 },
+        "participantAAvatar": { "type": "string", "maxLength": 1000 },
+        "participantBAvatar": { "type": "string", "maxLength": 1000 },
+        "lastMessage": { "type": "string", "maxLength": 1000 },
+        "lastSenderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "unreadCountA": { "type": "integer" },
+        "unreadCountB": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "participantA",
+        "participantB",
+        "participantAName",
+        "participantBName",
+        "participantAAvatar",
+        "participantBAvatar",
+        "lastMessage",
+        "lastSenderId",
+        "unreadCountA",
+        "unreadCountB",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual message inside a direct chat thread.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "chatId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "senderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "receiverId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["sent", "delivered", "read"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "chatId", "senderId", "receiverId", "text", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification for social, messages, books, or membership events.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recipientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorName": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "enum": ["social", "messages", "books", "membership"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "link": { "type": "string", "maxLength": 300 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "recipientId",
+        "actorId",
+        "actorName",
+        "category",
+        "title",
+        "body",
+        "link",
+        "read",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Content or user moderation report submitted by a user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reporterId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetType": { "type": "string", "enum": ["book", "user"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["open", "resolved", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "reporterId",
+        "targetType",
+        "targetId",
+        "targetTitle",
+        "reason",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator lookup document.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "grantedBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "grantedBy", "createdAt"]
+    },
+    "SocialPost": {
+      "title": "SocialPost",
+      "description": "Social activity post created by a Redcover reader or author.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "authorUsername": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "authorAvatar": { "type": "string", "maxLength": 1000 },
+        "postType": {
+          "type": "string",
+          "enum": [
+            "discussion",
+            "book_recommendation",
+            "reading_update",
+            "book_review",
+            "story_publication",
+            "reading_achievement"
+          ]
+        },
+        "text": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "bookId": { "type": "string", "maxLength": 128 },
+        "bookTitle": { "type": "string", "maxLength": 200 },
+        "bookAuthor": { "type": "string", "maxLength": 120 },
+        "bookCover": { "type": "string", "maxLength": 1000 },
+        "bookCategory": { "type": "string", "maxLength": 80 },
+        "rating": { "type": "integer" },
+        "progressPercentage": { "type": "integer" },
+        "chapterNumber": { "type": "integer" },
+        "likesCount": { "type": "integer" },
+        "commentsCount": { "type": "integer" },
+        "visibility": { "type": "string", "enum": ["public", "hidden"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "authorId",
+        "authorName",
+        "authorUsername",
+        "authorAvatar",
+        "postType",
+        "text",
+        "bookId",
+        "bookTitle",
+        "bookAuthor",
+        "bookCover",
+        "bookCategory",
+        "rating",
+        "progressPercentage",
+        "chapterNumber",
+        "likesCount",
+        "commentsCount",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PostLike": {
+      "title": "PostLike",
+      "description": "User like on a social activity post.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "postId", "userId", "createdAt"]
+    },
+    "PostComment": {
+      "title": "PostComment",
+      "description": "User comment on a social activity post.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "userUsername": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "userAvatar": { "type": "string", "maxLength": 1000 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "postId",
+        "userId",
+        "userName",
+        "userUsername",
+        "userAvatar",
+        "text",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public user profiles."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated private user PII and account settings."
+    },
+    "/books/{bookId}": {
+      "schema": { "$ref": "#/entities/Book" },
+      "description": "Books and stories catalog."
+    },
+    "/books/{bookId}/chapters/{chapterId}": {
+      "schema": { "$ref": "#/entities/Chapter" },
+      "description": "Chapters belonging to a specific book."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Book reviews and ratings."
+    },
+    "/readingProgress/{progressId}": {
+      "schema": { "$ref": "#/entities/ReadingProgress" },
+      "description": "User reading progress and bookmarks."
+    },
+    "/saves/{saveId}": {
+      "schema": { "$ref": "#/entities/SavedBook" },
+      "description": "Saved books in personal libraries."
+    },
+    "/likes/{likeId}": {
+      "schema": { "$ref": "#/entities/BookLike" },
+      "description": "User likes on books."
+    },
+    "/follows/{followId}": {
+      "schema": { "$ref": "#/entities/Follow" },
+      "description": "User follow relationships."
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Friend requests, friendships, and blocks."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/Chat" },
+      "description": "Direct messaging threads."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside a direct chat thread."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "Moderation reports."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Administrator registry."
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "#/entities/SocialPost" },
+      "description": "Community social activity feed posts."
+    },
+    "/postLikes/{likeId}": {
+      "schema": { "$ref": "#/entities/PostLike" },
+      "description": "Likes on social feed posts."
+    },
+    "/postComments/{commentId}": {
+      "schema": { "$ref": "#/entities/PostComment" },
+      "description": "Comments on social feed posts."
+    }
+  }
+}
