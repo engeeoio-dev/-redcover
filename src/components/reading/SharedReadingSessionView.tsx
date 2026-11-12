@@ -28,7 +28,7 @@ import {
   endReadingSession,
 } from '../../services/firebase/readingSessionService';
 import { PdfCanvasReader } from '../reader/PdfCanvasReader';
-import { doc, onSnapshot, collection } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase/firebaseConfig';
 
 interface SharedReadingSessionViewProps {
@@ -80,14 +80,16 @@ export const SharedReadingSessionView: React.FC<SharedReadingSessionViewProps> =
   // Real-time synchronization of remote requests
   useEffect(() => {
     const unsub = onSnapshot(
-      collection(db, 'readingRemoteRequests'),
+      query(
+        collection(db, 'readingRemoteRequests'),
+        where('sessionId', '==', session.id),
+        limit(50)
+      ),
       (snap) => {
         const reqs: ReadingRemoteRequest[] = [];
         snap.forEach((d) => {
           const r = d.data() as ReadingRemoteRequest;
-          if (r.sessionId === session.id && r.status === 'pending') {
-            reqs.push(r);
-          }
+          if (r.status === 'pending') reqs.push(r);
         });
         setPendingRequests(reqs);
       }
@@ -373,7 +375,6 @@ export const SharedReadingSessionView: React.FC<SharedReadingSessionViewProps> =
                     name={remoteUser?.displayName || currentSession.participantName || 'Reader'}
                     size="sm"
                   />
-                  <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white" />
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-[#202020] dark:text-white truncate">

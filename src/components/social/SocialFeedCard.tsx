@@ -145,7 +145,7 @@ export const SocialFeedCard: React.FC<{
       streakDays: 0,
       points: 0,
       membershipPlan: 'free',
-      isOnline: true,
+      isOnline: false,
       showOnlineStatus: true,
       publicActivity: true,
       role: 'author',

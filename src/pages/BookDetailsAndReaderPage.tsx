@@ -467,7 +467,7 @@ export const BookDetailsPage: React.FC = () => {
       streakDays: 0,
       points: 0,
       membershipPlan: 'free' as const,
-      isOnline: true,
+      isOnline: false,
       showOnlineStatus: true,
       publicActivity: true,
       role: 'author' as const,
@@ -2374,7 +2374,7 @@ export const ReaderPage: React.FC = () => {
           createdAt: new Date().toISOString(),
         };
         nextBookmarks = [newBm, ...bookmarksList];
-        addToast(`Bookmarked PDF Page ${currentPdfPage} in Firebase!`, 'success');
+        addToast(`Bookmarked PDF Page ${currentPdfPage} successfully!`, 'success');
       }
       const hasAny = nextBookmarks.length > 0;
       setBookmarksList(nextBookmarks);
@@ -2409,7 +2409,7 @@ export const ReaderPage: React.FC = () => {
         createdAt: new Date().toISOString(),
       };
       nextBookmarks = [newBm, ...bookmarksList];
-      addToast('Reading position bookmarked in Firebase!', 'success');
+      addToast('Reading position bookmarked successfully!', 'success');
     }
 
     const hasAny = nextBookmarks.length > 0;
@@ -2460,7 +2460,7 @@ export const ReaderPage: React.FC = () => {
     setShowHighlightNoteInput(false);
     window.getSelection()?.removeAllRanges();
     addToast(
-      customNote.trim() ? 'Highlight & note saved to Firebase!' : 'Highlight saved to Firebase!',
+      customNote.trim() ? 'Highlight & note saved successfully!' : 'Highlight saved successfully!',
       'success'
     );
     await persistReaderStateNow({ highlights: nextHighlights, bookmarked: true });
@@ -3318,7 +3318,7 @@ export const ReaderPage: React.FC = () => {
                       bookmarks: nextBms,
                       bookmarked: true,
                     });
-                    addToast('Personal note saved to Firebase!', 'success');
+                    addToast('Personal note saved successfully!', 'success');
                   }}
                   className="py-1.5 px-3 rounded-lg bg-[#E43136] text-white text-xs font-semibold inline-flex items-center gap-1 cursor-pointer shrink-0"
                 >

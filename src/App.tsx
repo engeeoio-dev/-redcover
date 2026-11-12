@@ -3,36 +3,37 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { RedcoverProvider } from './contexts/RedcoverContext';
 import { AppLayout } from './components/layout/AppLayout';
-import { HomePage } from './pages/HomePage';
-import { ExplorePage, SearchPage } from './pages/ExploreAndSearchPage';
-import { BookDetailsPage, ReaderPage } from './pages/BookDetailsAndReaderPage';
-import { HubPage } from './pages/HubPage';
-import { CreateBookPage } from './pages/CreateBookPage';
-import {
-  ProfilePage,
-  NotificationsPage,
-  MembershipPage,
-  SettingsPage,
-  AdminPage,
-  AuthPage,
-} from './pages/AccountAndAdminPages';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { AboutPage } from './pages/AboutPage';
-import { ContactPage } from './pages/ContactPage';
-import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
-import { TermsPage } from './pages/TermsPage';
-import { CommunityGuidelinesPage } from './pages/CommunityGuidelinesPage';
-import { CopyrightPolicyPage } from './pages/CopyrightPolicyPage';
+
+const HomePage = React.lazy(() => import('./pages/HomePage').then((m) => ({ default: m.HomePage })));
+const ExplorePage = React.lazy(() => import('./pages/ExploreAndSearchPage').then((m) => ({ default: m.ExplorePage })));
+const SearchPage = React.lazy(() => import('./pages/ExploreAndSearchPage').then((m) => ({ default: m.SearchPage })));
+const BookDetailsPage = React.lazy(() => import('./pages/BookDetailsAndReaderPage').then((m) => ({ default: m.BookDetailsPage })));
+const ReaderPage = React.lazy(() => import('./pages/BookDetailsAndReaderPage').then((m) => ({ default: m.ReaderPage })));
+const HubPage = React.lazy(() => import('./pages/HubPage').then((m) => ({ default: m.HubPage })));
+const CreateBookPage = React.lazy(() => import('./pages/CreateBookPage').then((m) => ({ default: m.CreateBookPage })));
+const ProfilePage = React.lazy(() => import('./pages/AccountAndAdminPages').then((m) => ({ default: m.ProfilePage })));
+const NotificationsPage = React.lazy(() => import('./pages/AccountAndAdminPages').then((m) => ({ default: m.NotificationsPage })));
+const SettingsPage = React.lazy(() => import('./pages/AccountAndAdminPages').then((m) => ({ default: m.SettingsPage })));
+const AdminPage = React.lazy(() => import('./pages/AccountAndAdminPages').then((m) => ({ default: m.AdminPage })));
+const AuthPage = React.lazy(() => import('./pages/AccountAndAdminPages').then((m) => ({ default: m.AuthPage })));
+const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
+const AboutPage = React.lazy(() => import('./pages/AboutPage').then((m) => ({ default: m.AboutPage })));
+const ContactPage = React.lazy(() => import('./pages/ContactPage').then((m) => ({ default: m.ContactPage })));
+const PrivacyPolicyPage = React.lazy(() => import('./pages/PrivacyPolicyPage').then((m) => ({ default: m.PrivacyPolicyPage })));
+const TermsPage = React.lazy(() => import('./pages/TermsPage').then((m) => ({ default: m.TermsPage })));
+const CommunityGuidelinesPage = React.lazy(() => import('./pages/CommunityGuidelinesPage').then((m) => ({ default: m.CommunityGuidelinesPage })));
+const CopyrightPolicyPage = React.lazy(() => import('./pages/CopyrightPolicyPage').then((m) => ({ default: m.CopyrightPolicyPage })));
 
 export default function App() {
   return (
     <RedcoverProvider>
       <BrowserRouter>
         <AppLayout>
+          <Suspense fallback={<div className="min-h-[40vh] flex items-center justify-center text-sm text-[#6E6E77]">Loading Redcover…</div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/explore" element={<ExplorePage />} />
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/auth" element={<AuthPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </AppLayout>
       </BrowserRouter>
     </RedcoverProvider>

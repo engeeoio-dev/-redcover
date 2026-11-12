@@ -1157,7 +1157,7 @@ export const SearchPage: React.FC = () => {
                 Secret Master Wipe Triggered
               </h3>
               <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8] leading-relaxed">
-                You entered the master reset key. This action will permanently erase all books, chapters, comments, chats, messages, and accounts from Firebase and reset Redcover completely.
+                You entered the master reset key. This action will permanently erase all books, chapters, comments, chats, messages, and accounts from the system and reset Redcover completely.
               </p>
             </div>
 

@@ -1,0 +1,24 @@
+[
+  {
+    "origin": [
+      "https://redcover.app",
+      "https://www.redcover.app"
+    ],
+    "method": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "DELETE"
+    ],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Content-Range",
+      "Accept-Ranges",
+      "Content-Encoding",
+      "x-goog-resumable"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

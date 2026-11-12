@@ -338,6 +338,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      draggable
+      onDragStart={(event) => {
+        const raw = message.text || 'Message';
+        const preview = raw.startsWith('[attachment:image:') ? '📷 Photo'
+          : raw.startsWith('[attachment:file:') ? '📎 File attachment'
+          : raw.startsWith('[attachment:voice:') ? '🎤 Voice message'
+          : raw.startsWith('[attachment:book:') || message.bookAttachment ? `📚 ${message.bookAttachment?.title || 'Book'}`
+          : raw.slice(0, 300);
+        event.dataTransfer.setData('application/x-redcover-message-reply', JSON.stringify({
+          id: message.id,
+          text: preview,
+          senderName: isOwn ? 'You' : (senderProfile?.displayName || otherUser?.displayName || 'Reader'),
+          senderId: message.senderId,
+        }));
+        event.dataTransfer.effectAllowed = 'copy';
+      }}
       style={{
         transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined,
       }}

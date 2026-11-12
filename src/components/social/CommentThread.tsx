@@ -92,7 +92,7 @@ export const LikedByBar: React.FC<LikedByBarProps> = ({
         streakDays: 0,
         points: 0,
         membershipPlan: 'free' as const,
-        isOnline: true,
+        isOnline: false,
         showOnlineStatus: true,
         publicActivity: true,
         role: 'user' as const,

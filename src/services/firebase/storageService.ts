@@ -1,6 +1,7 @@
 import { ref, uploadBytesResumable, getDownloadURL, listAll, StorageReference } from 'firebase/storage';
 import { doc, updateDoc } from 'firebase/firestore';
 import { storage, db, defaultDb, auth, FIREBASE_PROJECT_INFO } from './firebaseConfig';
+import { headquartersService } from './headquartersService';
 import {
   Book,
   BookReadingMode,
@@ -682,7 +683,7 @@ export function normalizeUserDoc(id: string, raw: Record<string, any>): UserProf
       raw.membershipPlan === 'premium' || raw.isPremium === true || raw.membership === 'premium'
         ? 'premium'
         : 'free',
-    isOnline: Boolean(raw.isOnline ?? true),
+    isOnline: Boolean(raw.isOnline ?? false),
     showOnlineStatus: Boolean(raw.showOnlineStatus ?? true),
     publicActivity: Boolean(raw.publicActivity ?? true),
     role: raw.role === 'admin' ? 'admin' : raw.role === 'author' ? 'author' : 'user',
@@ -907,6 +908,7 @@ export function normalizePostCommentDoc(id: string, raw: Record<string, any>): P
     replyToUsername,
     createdAt: toIsoString(raw.createdAt),
     updatedAt: toIsoString(raw.updatedAt || raw.createdAt),
+    moderationHidden: raw.moderationHidden === true,
   };
 }
 
@@ -961,9 +963,14 @@ export async function uploadFileToRedcoverStorage(
   file: File,
   onProgress?: (pct: number) => void
 ): Promise<string> {
-  const maxBytes = folder === 'book_pdfs' ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+  const maxBytes =
+    folder === 'book_pdfs'
+      ? 25 * 1024 * 1024
+      : folder === 'chat_attachments'
+        ? 20 * 1024 * 1024
+        : 10 * 1024 * 1024;
   if (file.size > maxBytes) {
-    throw new Error(`File exceeds maximum size (${folder === 'book_pdfs' ? '25MB' : '10MB'}).`);
+    throw new Error(`File exceeds maximum size (${folder === 'book_pdfs' ? '25MB' : folder === 'chat_attachments' ? '20MB' : '10MB'}).`);
   }
 
   const uid = auth.currentUser?.uid || entityId || 'user';
@@ -992,9 +999,21 @@ export async function uploadFileToRedcoverStorage(
           `uploads/${uid}_${stamp}_${safeName}`,
         ];
 
+  let lastUploadError: any = null;
+  const operationId = `upload_${stamp}`;
+  const report = (operation: string, severity: 'info' | 'warning' | 'critical', errorCode = '', storagePath = '') => {
+    void headquartersService.reportEvent({
+      service: 'storage', category: 'file_upload', operation, severity,
+      errorCode: errorCode.slice(0, 100), relatedId: entityId,
+      fileCategory: folder, fileName: safeName, storagePath,
+      message: `Upload operation ${operationId}`,
+    }).catch(() => {});
+  };
+  report('initiated', 'info');
   for (let i = 0; i < candidatePaths.length; i++) {
     const path = candidatePaths[i];
     const storageRef = ref(storage, path);
+    let nextProgressMilestone = 25;
     try {
       const task = uploadBytesResumable(storageRef, file);
       const url = await new Promise<string>((resolve, reject) => {
@@ -1002,7 +1021,12 @@ export async function uploadFileToRedcoverStorage(
           'state_changed',
           (snap) => {
             if (onProgress && snap.totalBytes > 0) {
-              onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+              const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+              onProgress(pct);
+              if (pct >= nextProgressMilestone && pct < 100) {
+                report('in_progress', 'info', '', path);
+                nextProgressMilestone += 25;
+              }
             }
           },
           (err) => reject(err),
@@ -1012,35 +1036,28 @@ export async function uploadFileToRedcoverStorage(
           }
         );
       });
+      report('completed', 'info', '', path);
       return url;
     } catch (err: any) {
+      lastUploadError = err;
       const code = String(err?.code || err?.message || '');
       const isUnauthorized =
         code.includes('storage/unauthorized') ||
         code.includes('permission') ||
         code.includes('403');
       if (!isUnauthorized) {
-        // Non-permission error (e.g. network cancel), break early to fallback
+        // Non-permission errors are not fixed by trying another object path.
+        report('failed', 'critical', String(err?.code || 'storage/unknown'), path);
         break;
       }
-      // Continue trying next candidate path if unauthorized
+      if (i < candidatePaths.length - 1) report('retry', 'warning', String(err?.code || 'storage/unauthorized'), path);
+      // Continue trying another supported Storage path if unauthorized.
     }
   }
 
-  // Automatic Firestore-Compatible Fallback when Firebase Storage bucket rules reject client writes (`storage/unauthorized`):
-  onProgress?.(100);
-  if (folder === 'book_pdfs') {
-    // All PDF text chapters and Page 1 cover are extracted in the browser and stored in Firestore (`books/{bookId}/chapters`).
-    return `https://redcover.app/pdf-text-edition/${encodeURIComponent(`${entityId}_${stamp}_${safeName}`)}`;
-  }
-
-  if (file.type.startsWith('image/')) {
-    const compactDataUrl = await compressImageFileToDataUrl(file, 4800);
-    if (compactDataUrl) {
-      return compactDataUrl;
-    }
-  }
-
-  return `https://redcover.app/media/${encodeURIComponent(`${entityId}_${stamp}_${safeName}`)}`;
+  const errorCode = String(lastUploadError?.code || 'storage/unknown');
+  const errorMessage = String(lastUploadError?.message || 'No Storage upload path was available.');
+  if (!lastUploadError) report('failed', 'critical', errorCode);
+  throw new Error(`System upload failed (${errorCode}): ${errorMessage}`);
 }
 

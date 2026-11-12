@@ -42,13 +42,15 @@ import {
   doc,
   onSnapshot,
   query,
+  where,
+  orderBy,
+  limit,
   updateDoc,
   deleteDoc,
 } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../services/firebase/firebaseConfig';
 import { toIsoString } from '../services/firebase/storageService';
-import { subscribeRtdbMessages, markRtdbMessagesRead } from '../services/firebase/rtdbChatService';
 import { useRedcover } from '../contexts/RedcoverContext';
 import { Book, Chapter, Chat, ChatMessage, Friendship, GroupMessage, UserProfile } from '../models/types';
 import { BookCover, EmptyState, UserAvatar } from '../components/common/UIPrimitives';
@@ -554,7 +556,7 @@ const AuthenticatedHubPage: React.FC<{
     setMessages(cachedList);
     setMessagesLoading(cachedList.length === 0);
 
-    // Unified merge helper to cleanly combine RTDB, Firestore, and in-flight messages without flickering or loss
+    // Merge the Firestore messages with the local cache without flickering.
     const mergeIncomingMessages = (incomingList: ChatMessage[]) => {
       if (!incomingList || incomingList.length === 0) return;
       const validIncoming = incomingList.filter((m) => m.chatId === currentChatId);
@@ -585,87 +587,80 @@ const AuthenticatedHubPage: React.FC<{
             map.set(m.id, m);
           }
         }
-        const merged = Array.from(map.values()).sort(
+         const merged = Array.from(map.values()).sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
         try {
-          localStorage.setItem(cacheKey, JSON.stringify(merged.slice(-100)));
+           localStorage.setItem(cacheKey, JSON.stringify(merged.slice(-100)));
         } catch {}
-        return merged;
+         return merged.slice(-100);
       });
       setMessagesLoading(false);
     };
 
-    // 1. Realtime Database subscription (ultra-low latency sub-50ms websocket sync)
-    const unsubRtdb = subscribeRtdbMessages(currentChatId, (rtdbMessages) => {
-      if (rtdbMessages.length > 0) {
-        mergeIncomingMessages(rtdbMessages);
-        markRtdbMessagesRead(currentChatId, firebaseUser.uid, rtdbMessages).catch(() => {});
-      }
+    // Keep list queries constrained to the signed-in participant so Firestore
+    // security rules can authorize each query without treating rules as filters.
+    const mapMessages = (snap: any): ChatMessage[] => snap.docs.map((d: any) => {
+      const raw = d.data();
+      return {
+        id: d.id,
+        chatId: String(raw.chatId || currentChatId),
+        senderId: String(raw.senderId || ''),
+        receiverId: String(raw.receiverId || ''),
+        text: String(raw.text || ''),
+        status: (raw.status as ChatMessage['status']) || 'sent',
+        reactions: raw.reactions || {},
+        replyTo: raw.replyTo,
+        bookAttachment: raw.bookAttachment,
+        redCode: raw.redCode,
+        isForwarded: Boolean(raw.isForwarded),
+        isEdited: Boolean(raw.isEdited),
+        editedAt: raw.editedAt ? toIsoString(raw.editedAt) : undefined,
+        isDeleted: Boolean(raw.isDeleted),
+        deletedAt: raw.deletedAt ? toIsoString(raw.deletedAt) : undefined,
+        deletedForUsers: raw.deletedForUsers || [],
+        createdAt: toIsoString(raw.createdAt),
+      };
     });
+    const handleMessageError = (err: unknown) => {
+      console.warn('Firestore chat subscription notice for', currentChatId, err);
+      setMessagesLoading(false);
+    };
+    const handleSentMessages = (snap: any) => {
+      mergeIncomingMessages(mapMessages(snap));
+      setMessagesLoading(false);
+    };
+    const handleReceivedMessages = (snap: any) => {
+      const received = mapMessages(snap);
+      mergeIncomingMessages(received);
+      setMessagesLoading(false);
+      const firstUnread = received.find((m) => m.status !== 'read');
+      if (firstUnread) setFirstUnreadMessageId((prev) => prev || firstUnread.id);
 
-    // 2. Authoritative Firestore subscription as robust dual-backup
-    const qMsgs = query(collection(db, 'chats', currentChatId, 'messages'));
-
-    const unsub = onSnapshot(
-      qMsgs,
-      (snap) => {
-        const serverMessages: ChatMessage[] = snap.docs.map((d) => {
-          const raw = d.data();
-          return {
-            id: d.id,
-            chatId: String(raw.chatId || currentChatId),
-            senderId: String(raw.senderId || ''),
-            receiverId: String(raw.receiverId || ''),
-            text: String(raw.text || ''),
-            status: (raw.status as ChatMessage['status']) || 'sent',
-            reactions: raw.reactions || {},
-            replyTo: raw.replyTo,
-            bookAttachment: raw.bookAttachment,
-            redCode: raw.redCode,
-            isForwarded: Boolean(raw.isForwarded),
-            isEdited: Boolean(raw.isEdited),
-            editedAt: raw.editedAt ? toIsoString(raw.editedAt) : undefined,
-            isDeleted: Boolean(raw.isDeleted),
-            deletedAt: raw.deletedAt ? toIsoString(raw.deletedAt) : undefined,
-            deletedForUsers: raw.deletedForUsers || [],
-            createdAt: toIsoString(raw.createdAt),
-          };
-        });
-
-        // Chronological order
-        serverMessages.sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-
-        mergeIncomingMessages(serverMessages);
-
-        const firstUnread = serverMessages.find(
-          (m) => m.receiverId === firebaseUser.uid && m.status !== 'read'
-        );
-        if (firstUnread) {
-          setFirstUnreadMessageId((prev) => prev || firstUnread.id);
+      snap.docs.forEach((d: any) => {
+        if (d.data().status !== 'read') {
+          updateDoc(doc(db, 'chats', currentChatId, 'messages', d.id), {
+            status: 'read',
+          }).catch(() => {});
         }
+      });
+    };
 
-        // Mark incoming messages as read in Firestore
-        snap.docs.forEach((d) => {
-          const data = d.data();
-          if (data.receiverId === firebaseUser.uid && data.status !== 'read') {
-            updateDoc(doc(db, 'chats', currentChatId, 'messages', d.id), {
-              status: 'read',
-            }).catch(() => {});
-          }
-        });
-      },
-      (err) => {
-        console.warn('Realtime chat subscription notice for', currentChatId, err);
-        setMessagesLoading(false);
-      }
+    const messagesRef = collection(db, 'chats', currentChatId, 'messages');
+    const unsubSent = onSnapshot(
+      query(messagesRef, where('senderId', '==', firebaseUser.uid), orderBy('createdAt', 'desc'), limit(100)),
+      handleSentMessages,
+      handleMessageError
+    );
+    const unsubReceived = onSnapshot(
+      query(messagesRef, where('receiverId', '==', firebaseUser.uid), orderBy('createdAt', 'desc'), limit(100)),
+      handleReceivedMessages,
+      handleMessageError
     );
 
     return () => {
-      unsub();
-      unsubRtdb();
+      unsubSent();
+      unsubReceived();
       setMessages([]);
     };
   }, [firebaseUser?.uid, activeChat?.id]);
@@ -747,6 +742,7 @@ const AuthenticatedHubPage: React.FC<{
     photoURL: string;
     bio: string;
     isOnline: boolean;
+    showOnlineStatus: boolean;
     userObj: UserProfile | null;
   } => {
     const isA = chat.participantA === currentUser.uid;
@@ -761,7 +757,7 @@ const AuthenticatedHubPage: React.FC<{
       'reader';
     const photoURL = foundUser?.photoURL || fallbackAvatar || '';
     const bio = foundUser?.bio || '';
-    const isOnline = Boolean(foundUser && foundUser.showOnlineStatus !== false);
+    const isOnline = Boolean(foundUser?.isOnline && foundUser.showOnlineStatus !== false);
 
     // Nickname support (per-user custom alias)
     const localNick = currentUser ? localStorage.getItem(`rc_nick_${currentUser.uid}_${partnerId}`) : null;
@@ -778,6 +774,7 @@ const AuthenticatedHubPage: React.FC<{
       photoURL,
       bio,
       isOnline,
+      showOnlineStatus: foundUser?.showOnlineStatus ?? true,
       userObj: foundUser
         ? { ...foundUser, displayName: effectiveDisplayName }
         : {
@@ -1335,10 +1332,11 @@ const AuthenticatedHubPage: React.FC<{
                         <div className="shrink-0">
                           <UserAvatar
                             user={{
+                              uid: partner.uid,
                               displayName: partner.displayName,
                               photoURL: partner.photoURL,
                               isOnline: partner.isOnline,
-                              showOnlineStatus: partner.isOnline,
+                              showOnlineStatus: partner.showOnlineStatus,
                             }}
                             size="sm"
                             showPresence
@@ -1596,7 +1594,7 @@ const AuthenticatedHubPage: React.FC<{
                         booksCount: 0,
                         streakDays: 0,
                         points: 0,
-                        isOnline: true,
+                        isOnline: false,
                         showOnlineStatus: true,
                         publicActivity: true,
                         createdAt: '',

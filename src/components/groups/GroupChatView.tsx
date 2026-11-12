@@ -510,6 +510,7 @@ export const GroupChatView: React.FC<GroupChatViewProps> = ({
           onSendMessage={onSendMessage}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
+          onDropReply={(reply) => setReplyingTo(reply)}
           allBooks={allBooks}
         />
       ) : (

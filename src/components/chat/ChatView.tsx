@@ -19,6 +19,7 @@ import {
   Book,
   ChatWallpaperConfig,
   Friendship,
+  ChatMessageReply,
 } from '../../models/types';
 import { UserAvatar } from '../common/UIPrimitives';
 import { MessageBubble } from './MessageBubble';
@@ -84,6 +85,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [selectedMessageForForward, setSelectedMessageForForward] = useState<ChatMessage | null>(null);
   const [selectedMessageForReport, setSelectedMessageForReport] = useState<ChatMessage | null>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null);
+  const messageScrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const [infoOpen, setInfoOpen] = useState(false);
   const [sizeModalOpen, setSizeModalOpen] = useState(false);
 
@@ -164,7 +167,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const presenceStatus = formatPresenceStatus(
     otherPresence,
-    otherUser?.isOnline,
+    false,
     otherUser?.showOnlineStatus ?? true
   );
 
@@ -176,11 +179,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   useEffect(() => {
     scrollToBottom('auto');
+    stickToBottomRef.current = true;
   }, [chat.id]);
 
   useEffect(() => {
-    scrollToBottom('smooth');
+    if (stickToBottomRef.current) scrollToBottom('smooth');
   }, [messages.length]);
+
+  const orderedMessages = [...messages].sort((a, b) => {
+    const timeA = Date.parse(a.createdAt || '') || 0;
+    const timeB = Date.parse(b.createdAt || '') || 0;
+    return timeA - timeB || a.id.localeCompare(b.id);
+  });
 
   const handleScrollToMessage = (messageId: string) => {
     const el = document.getElementById(`msg_${messageId}`);
@@ -327,7 +337,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Main Body (Messages + Context Drawer) */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative" style={getWallpaperStyle()}>
         {/* Messages Scroll Area */}
-        <div className="flex-1 min-w-0 min-h-0 overflow-y-auto px-4 py-4 flex flex-col justify-between">
+         <div
+           ref={messageScrollRef}
+           onScroll={(event) => {
+             const el = event.currentTarget;
+             stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+           }}
+           className="flex-1 min-w-0 min-h-0 overflow-y-auto px-4 py-4 flex flex-col"
+         >
           {/* Messages Stream */}
           <div className="space-y-1">
             {messages.length === 0 ? (
@@ -338,7 +355,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <p>Start a discussion or share books using 6-digit RedCodes.</p>
               </div>
             ) : (
-              messages.map((msg) => (
+              orderedMessages.map((msg) => (
                 <MessageBubble
                   key={msg.id}
                   message={msg}
@@ -499,6 +516,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           onSendMessage={onSendMessage}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
+          onDropReply={(reply: ChatMessageReply) => setReplyingTo(reply)}
           allBooks={allBooks}
           textScale={chatTextScale}
         />

@@ -27,6 +27,8 @@ import { ReadingInvitation } from '../../models/types';
 import { ToastContainer, UserAvatar } from '../common/UIPrimitives';
 import { NotificationCenter } from '../notifications/NotificationCenter';
 import { PublicFooter } from './PublicFooter';
+import { useHqPublicConfig } from '../../hooks/useHqPublicConfig';
+import { useHqBranding } from '../../hooks/useHqBranding';
 
 export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const {
@@ -35,7 +37,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
     notifications,
     chats,
     readingInvitations,
-    isAdmin,
+    hasHqPermission,
     logout,
     markNotificationRead,
     markAllNotificationsRead,
@@ -53,6 +55,18 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const [notifOpen, setNotifOpen] = useState(false);
   const [activeReadingInvite, setActiveReadingInvite] = useState<ReadingInvitation | null>(null);
   const dismissedInvitesRef = useRef<Set<string>>(new Set());
+  const platformConfig = useHqPublicConfig();
+  const activeBrandCampaign = useHqBranding();
+  useEffect(() => {
+    if (!activeBrandCampaign?.logoUrl) return;
+    const icons = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]'));
+    const original = icons.map((icon) => icon.href);
+    icons.forEach((icon) => { icon.href = activeBrandCampaign.logoUrl; });
+    return () => icons.forEach((icon, index) => { icon.href = original[index] || ''; });
+  }, [activeBrandCampaign?.logoUrl]);
+  const appContent = platformConfig.maintenanceMode && !hasHqPermission('platform:manage')
+    ? <div className="max-w-xl mx-auto my-16 rounded-3xl border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-8 text-center space-y-3"><h1 className="font-display text-2xl font-bold">Redcover is under maintenance</h1><p className="text-sm text-[#777780]">We are working on the platform. Please check back soon.</p></div>
+    : children;
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -106,7 +120,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   if (isReaderRoute) {
     return (
       <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-white dark:bg-black text-[#202020] dark:text-[#F5F5F7]">
-        {children}
+        {appContent}
         <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       </div>
     );
@@ -123,8 +137,8 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             className="inline-flex items-center gap-2 font-display text-lg font-bold tracking-tight text-[#E43136] whitespace-nowrap shrink-0"
           >
             <img
-              src="/assets/aistudio/WhatsApp_Image_2026-10-24_at_6.29.36_PM_8a2e5d20.jpeg"
-              alt="Redcover"
+              src={activeBrandCampaign?.logoUrl || '/assets/aistudio/WhatsApp_Image_2026-10-24_at_6.29.36_PM_8a2e5d20.jpeg'}
+              alt={activeBrandCampaign?.name || 'Redcover'}
               className="w-7 h-7 rounded-lg object-cover shadow-2xs"
             />
             <span>Redcover</span>
@@ -342,14 +356,14 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                         </div>
                       </div>
 
-                      {isAdmin && (
+                      {hasHqPermission('hq:overview') && (
                         <Link
                           to="/admin"
                           onClick={() => setDropdownOpen(false)}
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-[#E43136] hover:bg-[#FFF3F4] dark:hover:bg-[#121217]"
                         >
                           <Shield className="w-3.5 h-3.5" />
-                          Admin
+                          Headquarters
                         </Link>
                       )}
                       <div className="mt-1 pt-1 border-t border-[#F1F1F4] dark:border-[#22222A]">
@@ -381,17 +395,19 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
         </div>
       </header>
 
+      {platformConfig.announcement && !platformConfig.maintenanceMode && <div role="status" className="shrink-0 px-4 py-2 bg-[#FFF3F4] dark:bg-[#2D1619] text-center text-xs font-medium text-[#9A252B] dark:text-[#FFD8DB]">{platformConfig.announcement}</div>}
+
       {/* Main Application Viewport */}
       {isFixedWorkspaceRoute ? (
         /* Frame-fit workspace for /hub and /create: never scrolls at the outer page level */
         <main className="flex-1 min-h-0 w-full overflow-hidden flex flex-col">
-          {children}
+          {appContent}
         </main>
       ) : (
         /* Scrollable content viewport with PublicFooter at the bottom */
         <main className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col">
           <div className="flex-1 max-w-[1360px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
-            {children}
+            {appContent}
           </div>
           <PublicFooter />
         </main>

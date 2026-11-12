@@ -15,6 +15,7 @@ export interface UserPresenceState {
 
 const presenceCache = new Map<string, UserPresenceState>();
 const listeners = new Map<string, Set<(presence: UserPresenceState) => void>>();
+const presenceUnsubs = new Map<string, () => void>();
 
 /**
  * Initializes real-time presence monitoring using Firebase Realtime Database
@@ -39,21 +40,23 @@ export function initUserPresence(uid: string, showOnlineStatus: boolean = true):
       });
 
       await set(userStatusRtdbRef, {
-        state: 'online',
+        state: showOnlineStatus ? 'online' : 'offline',
         lastChanged: Date.now(),
       });
 
       // Synchronize to Firestore for offline queries
-      if (showOnlineStatus) {
-        updateDoc(doc(db, 'users', uid), {
-          isOnline: true,
-          updatedAt: serverTimestamp(),
-        }).catch(() => {
-          // Ignore offline or transient firestore update error
-        });
-      }
+      updateDoc(doc(db, 'users', uid), {
+        isOnline: showOnlineStatus,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {
+        // Ignore offline or transient firestore update error
+      });
     } catch (e) {
       console.warn('Presence sync warning:', e);
+      updateDoc(doc(db, 'users', uid), {
+        isOnline: false,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
     }
   });
 
@@ -65,12 +68,10 @@ export function initUserPresence(uid: string, showOnlineStatus: boolean = true):
         state: 'offline',
         lastChanged: Date.now(),
       }).catch(() => {});
-      if (showOnlineStatus) {
-        updateDoc(doc(db, 'users', uid), {
-          isOnline: false,
-          updatedAt: serverTimestamp(),
-        }).catch(() => {});
-      }
+      updateDoc(doc(db, 'users', uid), {
+        isOnline: false,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
     } catch {
       // Ignore
     }
@@ -91,15 +92,9 @@ export function subscribeUserPresence(
   }
   listeners.get(uid)!.add(callback);
 
-  // If already cached, call immediately
-  if (presenceCache.has(uid)) {
-    callback(presenceCache.get(uid)!);
-  }
-
-  let unsubRtdb: (() => void) | null = null;
-  if (rtdb) {
+  if (rtdb && !presenceUnsubs.has(uid)) {
     const userStatusRtdbRef = ref(rtdb, `/status/${uid}`);
-    unsubRtdb = onValue(userStatusRtdbRef, (snap) => {
+    const unsubRtdb = onValue(userStatusRtdbRef, (snap) => {
       const val = snap.val();
       const state: UserPresenceState = {
         state: val?.state === 'online' ? 'online' : 'offline',
@@ -107,14 +102,21 @@ export function subscribeUserPresence(
       };
       presenceCache.set(uid, state);
       listeners.get(uid)?.forEach((cb) => cb(state));
+    }, (error) => {
+      console.warn('RTDB presence subscription warning for', uid, error);
+      const state: UserPresenceState = { state: 'offline', lastChanged: Date.now() };
+      presenceCache.set(uid, state);
+      listeners.get(uid)?.forEach((cb) => cb(state));
     });
+    presenceUnsubs.set(uid, unsubRtdb);
   }
 
   return () => {
     listeners.get(uid)?.delete(callback);
     if (listeners.get(uid)?.size === 0) {
       listeners.delete(uid);
-      if (unsubRtdb) unsubRtdb();
+      presenceUnsubs.get(uid)?.();
+      presenceUnsubs.delete(uid);
     }
   };
 }

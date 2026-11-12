@@ -1,4 +1,4 @@
-import { auth } from './firebaseConfig';
+import { headquartersService } from './headquartersService';
 
 export enum OperationType {
   CREATE = 'create',
@@ -31,22 +31,14 @@ export function handleFirestoreError(
   operationType: OperationType,
   path: string | null
 ): void {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
-          providerId: provider.providerId,
-          email: provider.email,
-        })) || [],
-    },
-    operationType,
-    path,
-  };
-  console.warn('Firestore Notice: ', JSON.stringify(errInfo));
+  console.warn('System data operation failed:', operationType, error instanceof Error ? error.name : 'UnknownError');
+  void headquartersService.reportEvent({
+    service: 'firestore',
+    category: 'data_operation',
+    operation: operationType,
+    severity: 'warning',
+    errorCode: String((error as { code?: unknown } | null)?.code || 'firestore/unknown').slice(0, 100),
+    message: '',
+    relatedId: path?.split('/').filter(Boolean).pop()?.slice(0, 128),
+  }).catch(() => {});
 }

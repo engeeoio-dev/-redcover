@@ -27,6 +27,7 @@ interface ChatComposerProps {
   ) => Promise<void>;
   replyingTo: ChatMessageReply | null;
   onCancelReply: () => void;
+  onDropReply: (reply: ChatMessageReply) => void;
   allBooks: Book[];
   disabled?: boolean;
   disabledReason?: string;
@@ -95,6 +96,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   onSendMessage,
   replyingTo,
   onCancelReply,
+  onDropReply,
   allBooks,
   disabled = false,
   disabledReason,
@@ -107,6 +109,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const [attachedBook, setAttachedBook] = useState<Book | null>(null);
   const [bookSearch, setBookSearch] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isReplyDropTarget, setIsReplyDropTarget] = useState(false);
   const isSubmittingRef = useRef(false);
 
   // Attachment states
@@ -238,14 +241,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       const { dataUrl, sizeStr } = await compressImage(file);
       let finalUrl = dataUrl;
 
-      // Try Firebase Storage upload in background if available
-      try {
-        const { uploadFileToRedcoverStorage } = await import('../../services/firebase/storageService');
-        const uploaded = await uploadFileToRedcoverStorage('chat_attachments', 'chat_media', file);
-        if (uploaded) finalUrl = uploaded;
-      } catch {
-        // Fallback to compressed Data URL
-      }
+      const { uploadFileToRedcoverStorage } = await import('../../services/firebase/storageService');
+      finalUrl = await uploadFileToRedcoverStorage('chat_attachments', 'chat_media', file);
 
       setPendingMedia({
         type: 'image',
@@ -256,6 +253,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       textareaRef.current?.focus();
     } catch (err) {
       console.error('Image attach error:', err);
+      alert(err instanceof Error ? err.message : 'Image upload failed. Check your connection and try again.');
     } finally {
       setIsUploadingMedia(false);
     }
@@ -275,18 +273,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     setIsUploadingMedia(true);
     setShowAttachMenu(false);
     try {
-      let finalUrl = '';
-      try {
-        const { uploadFileToRedcoverStorage } = await import('../../services/firebase/storageService');
-        finalUrl = await uploadFileToRedcoverStorage('chat_attachments', 'chat_media', file);
-      } catch {
-        const reader = new FileReader();
-        finalUrl = await new Promise<string>((resolve) => {
-          reader.onload = () => resolve((reader.result as string) || '');
-          reader.onerror = () => resolve('');
-          reader.readAsDataURL(file);
-        });
-      }
+      const { uploadFileToRedcoverStorage } = await import('../../services/firebase/storageService');
+      const finalUrl = await uploadFileToRedcoverStorage('chat_attachments', 'chat_media', file);
 
       setPendingMedia({
         type: 'file',
@@ -297,6 +285,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       textareaRef.current?.focus();
     } catch (err) {
       console.error('Document attach error:', err);
+      alert(err instanceof Error ? err.message : 'File upload failed. Check your connection and try again.');
     } finally {
       setIsUploadingMedia(false);
     }
@@ -400,21 +389,11 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     }
 
     try {
-      let finalAudioUrl = '';
-      try {
-        const { uploadFileToRedcoverStorage } = await import('../../services/firebase/storageService');
-        const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, {
-          type: audioBlob.type,
-        });
-        finalAudioUrl = await uploadFileToRedcoverStorage('chat_attachments', 'chat_voice', audioFile);
-      } catch {
-        const reader = new FileReader();
-        finalAudioUrl = await new Promise<string>((resolve) => {
-          reader.onload = () => resolve((reader.result as string) || '');
-          reader.onerror = () => resolve('');
-          reader.readAsDataURL(audioBlob);
-        });
-      }
+      const { uploadFileToRedcoverStorage } = await import('../../services/firebase/storageService');
+      const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, {
+        type: audioBlob.type,
+      });
+      const finalAudioUrl = await uploadFileToRedcoverStorage('chat_attachments', 'chat_voice', audioFile);
 
       if (finalAudioUrl) {
         await onSendMessage(`[attachment:voice:${finalAudioUrl}|${durationStr}]`, {
@@ -424,6 +403,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       }
     } catch (err) {
       console.error('Failed to send voice message:', err);
+      alert(err instanceof Error ? err.message : 'Voice message upload failed. Check your connection and try again.');
     } finally {
       setIsSending(false);
     }
@@ -450,7 +430,25 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const hasContentToSend = Boolean(text.trim() || attachedBook || pendingMedia);
 
   return (
-    <div className="shrink-0 z-20 w-full relative border-t border-[#E5E5EB] dark:border-[#22222A] bg-white dark:bg-[#101015] pb-[max(0.35rem,env(safe-area-inset-bottom))]">
+    <div
+      className={`shrink-0 z-20 w-full relative border-t bg-white dark:bg-[#101015] pb-[max(0.35rem,env(safe-area-inset-bottom))] ${isReplyDropTarget ? 'border-[#E43136] ring-2 ring-inset ring-[#E43136]/30' : 'border-[#E5E5EB] dark:border-[#22222A]'}`}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('application/x-redcover-message-reply')) {
+          event.preventDefault();
+          setIsReplyDropTarget(true);
+        }
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsReplyDropTarget(false);
+      }}
+      onDrop={(event) => {
+        const payload = event.dataTransfer.getData('application/x-redcover-message-reply');
+        if (!payload) return;
+        event.preventDefault();
+        setIsReplyDropTarget(false);
+        try { onDropReply(JSON.parse(payload) as ChatMessageReply); } catch { /* ignore malformed drag data */ }
+      }}
+    >
       {/* Hidden File Inputs */}
       <input
         ref={imageInputRef}

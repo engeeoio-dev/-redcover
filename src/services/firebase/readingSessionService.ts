@@ -4,6 +4,7 @@ import {
   setDoc,
   updateDoc,
   runTransaction,
+  writeBatch,
   serverTimestamp,
   collection,
 } from 'firebase/firestore';
@@ -53,11 +54,7 @@ export async function createReadingSession(
     updatedAt: new Date().toISOString(),
   };
 
-  await setDoc(doc(db, 'readingSessions', sessionId), {
-    ...sessionData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const sessionRef = doc(db, 'readingSessions', sessionId);
 
   // Create reading invitation
   const inviteData: ReadingInvitation = {
@@ -77,11 +74,11 @@ export async function createReadingSession(
     updatedAt: new Date().toISOString(),
   };
 
-  await setDoc(doc(db, 'readingInvitations', invitationId), {
-    ...inviteData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const invitationRef = doc(db, 'readingInvitations', invitationId);
+  const batch = writeBatch(db);
+  batch.set(sessionRef, { ...sessionData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  batch.set(invitationRef, { ...inviteData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  await batch.commit();
 
   // Send in-app notification
   const notifId = `notif_${invitationId}`;
@@ -114,18 +111,20 @@ export async function acceptReadingInvitation(
   sessionId: string,
   user: UserProfile
 ): Promise<void> {
-  await updateDoc(doc(db, 'readingInvitations', invitationId), {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'readingInvitations', invitationId), {
     status: 'accepted',
     updatedAt: serverTimestamp(),
   });
 
-  await updateDoc(doc(db, 'readingSessions', sessionId), {
+  batch.update(doc(db, 'readingSessions', sessionId), {
     status: 'active',
     participantId: user.uid,
     participantName: user.displayName,
     participantAvatar: user.photoURL || '',
     updatedAt: serverTimestamp(),
   });
+  await batch.commit();
 }
 
 /**
@@ -209,18 +208,20 @@ export async function respondToRemoteRequest(
   const reqRef = doc(db, 'readingRemoteRequests', requestId);
   const sessionRef = doc(db, 'readingSessions', sessionId);
 
-  await updateDoc(reqRef, {
+  const batch = writeBatch(db);
+  batch.update(reqRef, {
     status: approve ? 'approved' : 'rejected',
   });
 
   if (approve && newControllerId && newControllerName) {
-    await updateDoc(sessionRef, {
+    batch.update(sessionRef, {
       activeControllerId: newControllerId,
       activeControllerName: newControllerName,
       controllerLeaseUntil: Date.now() + 300000,
       updatedAt: serverTimestamp(),
     });
   }
+  await batch.commit();
 }
 
 /**

@@ -205,6 +205,7 @@ export interface Chat {
   lastSenderId: string;
   unreadCountA: number;
   unreadCountB: number;
+  hiddenFor?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -475,6 +476,7 @@ export interface PostComment {
   replyToUsername?: string;
   createdAt: string;
   updatedAt: string;
+  moderationHidden?: boolean;
 }
 
 export const REDCOVER_CATEGORIES = [

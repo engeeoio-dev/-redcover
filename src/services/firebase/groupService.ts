@@ -8,6 +8,8 @@ import {
   serverTimestamp,
   arrayUnion,
   arrayRemove,
+  writeBatch,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 import {
@@ -292,26 +294,35 @@ export async function sendGroupMessage(
     payload.attachmentType = options.attachmentType;
   }
   if (options?.bookAttachment) {
-    payload.bookAttachment = options.bookAttachment;
+    const attachment = options.bookAttachment;
+    payload.bookAttachment = {
+      id: String(attachment.id || attachment.bookId || ''),
+      title: String(attachment.title || '').slice(0, 200),
+      author: String(attachment.author || attachment.authorName || 'Author').slice(0, 120),
+      coverURL: String(attachment.coverURL || '').slice(0, 5000),
+      description: String(attachment.description || attachment.shortDescription || '').slice(0, 300),
+      redCode: String(attachment.redCode || '').slice(0, 12),
+    };
   }
   if (options?.isForwarded) {
     payload.isForwarded = true;
     payload.forwardedFrom = options.forwardedFrom || '';
   }
 
-  await setDoc(msgRef, payload);
-
   let preview = cleanText;
   if (options?.bookAttachment) {
     preview = `📚 Shared book: ${options.bookAttachment.title}`;
   }
 
-  await updateDoc(doc(db, 'groups', groupId), {
+  const batch = writeBatch(db);
+  batch.set(msgRef, payload);
+  batch.update(doc(db, 'groups', groupId), {
     lastMessage: preview.slice(0, 200),
     lastSenderId: sender.uid,
-    lastMessageAt: new Date().toISOString(),
+    lastMessageAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  await batch.commit();
 
   return msgId;
 }
@@ -327,16 +338,17 @@ export async function reactToGroupMessage(
 ): Promise<void> {
   if (!groupId || !messageId || !userId || !emoji) return;
   const msgRef = doc(db, 'groups', groupId, 'messages', messageId);
-  const snap = await getDoc(msgRef);
-  if (!snap.exists()) return;
-  const currentReactions: Record<string, string[]> = snap.data().reactions || {};
-  const currentList = Array.isArray(currentReactions[emoji]) ? currentReactions[emoji] : [];
-  let nextList: string[];
-  if (currentList.includes(userId)) {
-    nextList = currentList.filter((u) => u !== userId);
-  } else {
-    nextList = [...currentList, userId];
-  }
-  const nextReactions = { ...currentReactions, [emoji]: nextList };
-  await updateDoc(msgRef, { reactions: nextReactions });
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(msgRef);
+    if (!snap.exists()) return;
+    const currentReactions: Record<string, string[]> = snap.data().reactions || {};
+    const currentList = Array.isArray(currentReactions[emoji]) ? currentReactions[emoji] : [];
+    const nextList = currentList.includes(userId)
+      ? currentList.filter((uid) => uid !== userId)
+      : [...currentList, userId];
+    const nextReactions = { ...currentReactions };
+    if (nextList.length) nextReactions[emoji] = nextList;
+    else delete nextReactions[emoji];
+    transaction.update(msgRef, { reactions: nextReactions });
+  });
 }

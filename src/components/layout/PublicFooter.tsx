@@ -1,9 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Instagram, Mail, BookOpen, ShieldCheck, Heart, Sparkles, Feather } from 'lucide-react';
+import { useHqBranding } from '../../hooks/useHqBranding';
 
 export const PublicFooter: React.FC = () => {
   const currentYear = new Date().getFullYear();
+  const activeBrandCampaign = useHqBranding();
 
   return (
     <footer className="w-full bg-white dark:bg-[#0A0A0D] border-t border-[#DDDDE3] dark:border-[#22222A] mt-auto transition-colors">
@@ -14,8 +16,8 @@ export const PublicFooter: React.FC = () => {
           <div className="lg:col-span-2 space-y-4">
             <Link to="/" className="inline-flex items-center gap-2.5">
               <img
-                src="/assets/aistudio/WhatsApp_Image_2026-10-24_at_6.29.36_PM_8a2e5d20.jpeg"
-                alt="Redcover"
+                src={activeBrandCampaign?.logoUrl || '/assets/aistudio/WhatsApp_Image_2026-10-24_at_6.29.36_PM_8a2e5d20.jpeg'}
+                alt={activeBrandCampaign?.name || 'Redcover'}
                 className="w-8 h-8 rounded-lg object-cover shadow-xs"
               />
               <span className="font-display text-xl font-bold tracking-tight text-[#E43136]">

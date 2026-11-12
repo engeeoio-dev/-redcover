@@ -18,11 +18,13 @@ import { Book, UserProfile } from '../../models/types';
 import { ToastMessage } from '../../contexts/RedcoverContext';
 import { BookCover } from '../books/BookCover';
 import { resolveFirebaseCoverUrl } from '../../services/firebase/storageService';
+import { subscribeUserPresence } from '../../services/firebase/presenceService';
 
 export { BookCover };
 
 export interface UserAvatarProps {
   user?: (Pick<UserProfile, 'displayName' | 'photoURL'> & {
+    uid?: string;
     isOnline?: boolean;
     showOnlineStatus?: boolean;
     membershipPlan?: 'free' | 'premium';
@@ -54,11 +56,20 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
 }) => {
   const [imgErr, setImgErr] = useState(false);
   const [resolvedPhoto, setResolvedPhoto] = useState<string>('');
+  const [liveIsOnline, setLiveIsOnline] = useState(false);
 
   const effectivePhoto = user?.photoURL ?? photoURL ?? avatarUrl ?? '';
   const effectiveName = user?.displayName ?? displayName ?? name ?? 'RC';
-  const effectiveOnline = user?.isOnline ?? isOnline ?? false;
   const effectiveShowOnline = user?.showOnlineStatus ?? showOnlineStatus ?? true;
+  const effectiveOnline = showPresence ? liveIsOnline : (user?.isOnline ?? isOnline ?? false);
+
+  useEffect(() => {
+    setLiveIsOnline(false);
+    if (!showPresence || !user?.uid || !effectiveShowOnline) return;
+    return subscribeUserPresence(user.uid, (presence) => {
+      setLiveIsOnline(presence.state === 'online');
+    });
+  }, [showPresence, user?.uid, effectiveShowOnline]);
 
   useEffect(() => {
     let active = true;

@@ -22,12 +22,40 @@ import {
   AlertTriangle,
   Trash2,
   ChevronRight,
+  LayoutDashboard,
+  UsersRound,
+  BookOpen,
+  BookMarked,
+  Flag,
+  Activity,
+  ClipboardList,
+  Search,
+  CheckCircle2,
+  CircleDot,
+  Clock3,
+  LockKeyhole,
+  XCircle,
+  Loader2,
+  HardDrive,
+  Cloud,
+  ShieldCheck,
+  Info,
+  BarChart3,
+  Gem,
+  ImagePlus,
+  Settings2,
+  Ticket,
+  ShieldAlert,
 } from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useRedcover } from '../contexts/RedcoverContext';
-import { FIREBASE_PROJECT_INFO } from '../services/firebase/firebaseConfig';
+import { db, FIREBASE_PROJECT_INFO } from '../services/firebase/firebaseConfig';
 import { uploadFileToRedcoverStorage } from '../services/firebase/storageService';
 import { ImageCropModal } from '../components/common/ImageCropModal';
 import { BookCard, BookCover, EmptyState, UserAvatar } from '../components/common/UIPrimitives';
+import { headquartersService, HeadquartersOverview, HeadquartersRole, HqAuditEntry, HqBook, HqEvent, HqReport, HqServiceHealth, HqStaff, HqUser } from '../services/firebase/headquartersService';
+import { HeadquartersExtendedPanels } from './HeadquartersExtendedPanels';
+import { HqUserDetailsModal } from './HqUserDetailsModal';
 
 export const ProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -73,6 +101,14 @@ export const ProfilePage: React.FC = () => {
   const [coverURLInput, setCoverURLInput] = useState('');
   const [cropTarget, setCropTarget] = useState<{ file: File; field: 'avatar' | 'cover' } | null>(null);
   const [nameColorInput, setNameColorInput] = useState('');
+  const [staffRole, setStaffRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!targetUid) { setStaffRole(null); return; }
+    return onSnapshot(doc(db, 'hqStaffProfiles', targetUid), (snapshot) => {
+      setStaffRole(snapshot.exists() && snapshot.get('verifiedStaff') === true ? String(snapshot.get('role') || 'staff') : null);
+    }, () => setStaffRole(null));
+  }, [targetUid]);
 
   if (!profileUser) {
     return (
@@ -167,7 +203,7 @@ export const ProfilePage: React.FC = () => {
       const url = await uploadFileToRedcoverStorage('profile_media', profileUser.uid, file);
       if (cropTarget.field === 'avatar') setPhotoURLInput(url);
       else setCoverURLInput(url);
-      addToast('Profile image uploaded to Firebase Storage!', 'success');
+      addToast('Profile image uploaded successfully!', 'success');
       setCropTarget(null);
     } catch {
       addToast('Could not upload image.', 'error');
@@ -204,6 +240,7 @@ export const ProfilePage: React.FC = () => {
                   }
                 >
                   {profileUser.displayName}
+                  {staffRole && <span className="ml-2 inline-flex items-center gap-1 align-middle rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400"><ShieldCheck className="h-3 w-3" />Redcover staff · {staffRole.replaceAll('_', ' ')}</span>}
                 </h1>
                 {profileUser.membershipPlan === 'premium' && (
                   <span className="text-xs font-semibold text-[#E6A02C] inline-flex items-center gap-1">
@@ -769,6 +806,7 @@ export const SettingsPage: React.FC = () => {
     privateInfo,
     theme,
     isAdmin,
+    hasHqPermission,
     books,
     users,
     realtimeSyncCount,
@@ -795,7 +833,7 @@ export const SettingsPage: React.FC = () => {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
               <Database className="w-5 h-5 text-[#E43136]" />
-              <h2 className="text-base font-semibold">Admin Diagnostics: Firebase (`red-cover`)</h2>
+              <h2 className="text-base font-semibold">System diagnostics</h2>
             </div>
             <span className="text-xs font-semibold text-[#268B62]">Connected & Live</span>
           </div>
@@ -811,7 +849,7 @@ export const SettingsPage: React.FC = () => {
             <div>Last Synced: {new Date(lastSyncedAt).toLocaleTimeString()}</div>
           </div>
 
-          <p className="text-xs text-[#777780]">Read-only Firebase connection diagnostics.</p>
+          <p className="text-xs text-[#777780]">Read-only connection diagnostics.</p>
         </div>
       )}
 
@@ -915,7 +953,7 @@ export const SettingsPage: React.FC = () => {
           >
             Manage Membership
           </Link>
-          {isAdmin && (
+          {hasHqPermission('hq:overview') && (
             <Link
               to="/admin"
               className="py-2 px-4 rounded-xl bg-[#FFF3F4] dark:bg-[#2D1619] text-[#E43136] text-xs font-semibold inline-flex items-center gap-1.5"
@@ -942,214 +980,280 @@ export const SettingsPage: React.FC = () => {
 };
 
 export const AdminPage: React.FC = () => {
-  const { isAdmin, users, books, reports, updateBookStatusAdmin, resolveReportAdmin, deleteBook } =
-    useRedcover();
-  const [adminTab, setAdminTab] = useState<'books' | 'users' | 'reports'>('books');
+  const { hqRole, hqPermissions, hasHqPermission, refreshHqClaims, addToast } = useRedcover();
+  const [activeTab, setActiveTab] = useState('overview');
+  const [overview, setOverview] = useState<HeadquartersOverview | null>(null);
+  const [users, setUsers] = useState<HqUser[]>([]);
+  const [selectedUser, setSelectedUser] = useState<HqUser | null>(null);
+  const [userPageToken, setUserPageToken] = useState<string | null>(null);
+  const [staff, setStaff] = useState<HqStaff[]>([]);
+  const [books, setBooks] = useState<HqBook[]>([]);
+  const [bookPageToken, setBookPageToken] = useState<string | null>(null);
+  const [reports, setReports] = useState<HqReport[]>([]);
+  const [events, setEvents] = useState<HqEvent[]>([]);
+  const [auditEntries, setAuditEntries] = useState<HqAuditEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState('');
+  const [error, setError] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [userSearchDebounced, setUserSearchDebounced] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('');
+  const [userPlanFilter, setUserPlanFilter] = useState('');
+  const [userCreatedFrom, setUserCreatedFrom] = useState('');
+  const [userCreatedTo, setUserCreatedTo] = useState('');
+  const [bookSearch, setBookSearch] = useState('');
+  const [bookStatus, setBookStatus] = useState('');
+  const [eventStatus, setEventStatus] = useState('');
+  const [rangeDays, setRangeDays] = useState(7);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [roleDrafts, setRoleDrafts] = useState<Record<string, HeadquartersRole>>({});
 
-  if (!isAdmin) {
+  const rolePermissions = hqPermissions;
+  const canAccess = hqRole === 'owner' || rolePermissions.includes('*') || rolePermissions.includes('hq:overview');
+  const navigation = [
+    { id: 'overview', label: 'Overview', permission: 'hq:overview', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { id: 'users', label: 'Users', permission: 'users:view', icon: <UsersRound className="w-4 h-4" /> },
+    { id: 'staff', label: 'Staff', permission: 'staff:manage', icon: <ShieldCheck className="w-4 h-4" /> },
+    { id: 'content', label: 'Books & Content', permission: 'content:books', icon: <BookOpen className="w-4 h-4" /> },
+    { id: 'posts', label: 'Posts', permission: 'content:books', icon: <MessageSquare className="w-4 h-4" /> },
+    { id: 'reviews', label: 'Reviews', permission: 'content:books', icon: <BookMarked className="w-4 h-4" /> },
+    { id: 'comments', label: 'Comments', permission: 'content:books', icon: <MessageSquare className="w-4 h-4" /> },
+    { id: 'moderation', label: 'Moderation', permission: 'moderation:reports', icon: <Flag className="w-4 h-4" /> },
+    { id: 'health', label: 'Firebase Health', permission: 'health:read', icon: <Activity className="w-4 h-4" /> },
+    { id: 'analytics', label: 'Analytics', permission: 'analytics:read', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'membership', label: 'Membership', permission: 'membership:read', icon: <Gem className="w-4 h-4" /> },
+    { id: 'brand', label: 'Brand Studio', permission: 'brand:manage', icon: <ImagePlus className="w-4 h-4" /> },
+    { id: 'settings', label: 'Global Settings', permission: 'platform:manage', icon: <Settings2 className="w-4 h-4" /> },
+    { id: 'support', label: 'Support Center', permission: 'support:read', icon: <Ticket className="w-4 h-4" /> },
+    { id: 'security', label: 'Security Center', permission: 'security:read', icon: <ShieldAlert className="w-4 h-4" /> },
+    { id: 'audit', label: 'Audit Logs', permission: 'audit:read', icon: <ClipboardList className="w-4 h-4" /> },
+  ].filter((item) => hasHqPermission(item.permission));
+  const staffRoles: HeadquartersRole[] = ['administrator', 'moderator', 'content_manager', 'community_manager', 'support_staff'];
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setUserSearchDebounced(userSearch.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [userSearch]);
+
+  useEffect(() => {
+    if (!canAccess) return;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    const load = async () => {
+      try {
+        if (activeTab === 'overview') {
+          const result = await headquartersService.getOverview(rangeDays, customStart || undefined, customEnd || undefined);
+          if (!cancelled) setOverview(result);
+        } else if (activeTab === 'users') {
+          const result = await headquartersService.listUsers(userSearchDebounced, undefined, { status: userStatusFilter, role: userRoleFilter, membershipPlan: userPlanFilter, createdFrom: userCreatedFrom, createdTo: userCreatedTo });
+          if (!cancelled) { setUsers(result.users); setUserPageToken(result.nextPageToken); }
+        } else if (activeTab === 'staff') {
+          const result = await headquartersService.listStaff();
+          if (!cancelled) setStaff(result.staff);
+        } else if (activeTab === 'content') {
+          const result = await headquartersService.listBooks(bookSearch.trim(), bookStatus);
+          if (!cancelled) { setBooks(result.books); setBookPageToken(result.nextPageToken); }
+        } else if (activeTab === 'moderation') {
+          const result = await headquartersService.listReports();
+          if (!cancelled) setReports(result.reports);
+        } else if (activeTab === 'health') {
+          const result = await headquartersService.listEvents(eventStatus);
+          if (!cancelled) setEvents(result.events);
+        } else if (activeTab === 'audit') {
+          const result = await headquartersService.getAuditLogs();
+          if (!cancelled) setAuditEntries(result.entries);
+        }
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message || 'Headquarters data could not be loaded.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [activeTab, canAccess, userSearchDebounced, userStatusFilter, userRoleFilter, userPlanFilter, userCreatedFrom, userCreatedTo, bookSearch, bookStatus, eventStatus, rangeDays, customStart, customEnd]);
+
+  const runAction = async (id: string, action: () => Promise<unknown>, successText: string, reloadTab = activeTab) => {
+    setBusyId(id);
+    setError('');
+    try {
+      await action();
+      addToast(successText, 'success');
+      if (reloadTab === 'users') {
+        const result = await headquartersService.listUsers(userSearchDebounced, undefined, { status: userStatusFilter, role: userRoleFilter, membershipPlan: userPlanFilter, createdFrom: userCreatedFrom, createdTo: userCreatedTo });
+        setUsers(result.users); setUserPageToken(result.nextPageToken);
+      } else if (reloadTab === 'staff') {
+        setStaff((await headquartersService.listStaff()).staff);
+      } else if (reloadTab === 'content') {
+        const result = await headquartersService.listBooks(bookSearch.trim(), bookStatus);
+        setBooks(result.books); setBookPageToken(result.nextPageToken);
+      } else if (reloadTab === 'moderation') {
+        setReports((await headquartersService.listReports()).reports);
+      } else if (reloadTab === 'health') {
+        setEvents((await headquartersService.listEvents(eventStatus)).events);
+      } else if (reloadTab === 'overview') {
+        setOverview(await headquartersService.getOverview(rangeDays, customStart || undefined, customEnd || undefined));
+      }
+    } catch (err: any) {
+      const message = String(err?.message || 'Action failed.');
+      setError(message.includes('functions/not-found') ? 'Headquarters backend is not deployed yet. Deploy the project functions and security rules first.' : message);
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  const loadMoreUsers = async () => {
+    if (!userPageToken) return;
+    setBusyId('users-more');
+    try {
+      const result = await headquartersService.listUsers(userSearchDebounced, userPageToken, { status: userStatusFilter, role: userRoleFilter, membershipPlan: userPlanFilter, createdFrom: userCreatedFrom, createdTo: userCreatedTo });
+      setUsers((old) => [...old, ...result.users]); setUserPageToken(result.nextPageToken);
+    } catch (err: any) { setError(err?.message || 'More users could not be loaded.'); }
+    finally { setBusyId(''); }
+  };
+
+  const loadMoreBooks = async () => {
+    if (!bookPageToken) return;
+    setBusyId('books-more');
+    try {
+      const result = await headquartersService.listBooks('', bookStatus, bookPageToken);
+      setBooks((old) => [...old, ...result.books]); setBookPageToken(result.nextPageToken);
+    } catch (err: any) { setError(err?.message || 'More books could not be loaded.'); }
+    finally { setBusyId(''); }
+  };
+
+  const refreshClaims = async () => {
+    setBusyId('claims');
+    try { await refreshHqClaims(); addToast('Access status refreshed.', 'success'); }
+    catch (err: any) { setError(err?.message || 'Could not refresh access status.'); }
+    finally { setBusyId(''); }
+  };
+
+  if (!canAccess) {
     return (
-      <EmptyState
-        title="Administrator Access Required"
-        description="The Admin Control Center is restricted to verified Redcover platform administrators."
-        actionLabel="Return Home"
-        actionTo="/"
-      />
+      <div className="max-w-xl mx-auto my-12 rounded-3xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#16161A] p-8 text-center space-y-4">
+        <div className="mx-auto w-14 h-14 rounded-2xl bg-[#E43136]/10 text-[#E43136] flex items-center justify-center"><LockKeyhole className="w-7 h-7" /></div>
+        <h1 className="font-display text-2xl font-bold">Redcover Headquarters</h1>
+        <p className="text-sm text-[#777780] dark:text-[#A8A8B2]">Owner and staff access is verified by server-issued custom claims. A profile role or email address alone cannot grant access.</p>
+        <button type="button" disabled={busyId === 'claims'} onClick={refreshClaims} className="px-4 py-2.5 rounded-xl bg-[#E43136] text-white text-sm font-semibold disabled:opacity-50">{busyId === 'claims' ? 'Checking…' : 'Refresh access status'}</button>
+        {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+      </div>
     );
   }
 
-  const publishedCount = books.filter((b) => b.status === 'published').length;
-  const pendingOrDraftCount = books.filter((b) => b.status !== 'published').length;
-  const premiumCount = users.filter((u) => u.membershipPlan === 'premium').length;
-  const openReportsCount = reports.filter((r) => r.status === 'open').length;
+  const metricLabels: Record<string, string> = {
+    userProfiles: 'User profiles', books: 'All books', publishedBooks: 'Published books', drafts: 'Drafts', posts: 'Public posts', comments: 'Comments', likes: 'Likes', followers: 'Followers', readingSessions: 'Reading sessions', reports: 'Reports', pendingModeration: 'Pending moderation', premiumMemberships: 'Premium memberships', newUsersPeriod: 'New registrations', failedOperations24h: 'Failures · 24h', activeUsers: 'Active users', storageBytes: 'Storage use', billingEstimate: 'Monthly cost estimate',
+  };
+  const healthLabel = (name: string) => ({ auth: 'Authentication', firestore: 'Cloud Firestore', storage: 'Cloud Storage', realtimeDatabase: 'Realtime Database', functions: 'Cloud Functions', appCheck: 'App Check', cloudFunctions: 'Scheduled / worker services', cloudflare: 'Cloudflare' } as Record<string, string>)[name] || name;
+  const metricValue = (metric?: { available: boolean; value: number | null }) => metric?.available && metric.value !== null ? metric.value.toLocaleString() : 'Unavailable';
+  const healthColor = (status: string) => status === 'healthy' ? 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20' : status === 'critical' ? 'text-red-600 bg-red-500/10 border-red-500/20' : status === 'warning' ? 'text-amber-600 bg-amber-500/10 border-amber-500/20' : 'text-[#777780] bg-black/5 border-black/10 dark:bg-white/5 dark:border-white/10';
+  const roleLabel = (role: string) => role.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="font-display text-2xl sm:text-3xl font-bold">Admin Control Center</h1>
-        <p className="text-sm text-[#777780]">
-          Real-time platform moderation, catalog governance, and community analytics for `red-cover`.
-        </p>
-      </div>
-
-      {/* 17.1 Real Backend KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 tabular-nums">
-        {[
-          { label: 'Registered Users', val: users.length },
-          { label: 'Total Books', val: books.length },
-          { label: 'Published Books', val: publishedCount },
-          { label: 'Draft / Pending', val: pendingOrDraftCount },
-          { label: 'Premium Members', val: premiumCount },
-          { label: 'Open Reports', val: openReportsCount },
-        ].map((kpi) => (
-          <div
-            key={kpi.label}
-            className="bg-white dark:bg-[#16161A] rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] p-4"
-          >
-            <span className="block text-2xl font-bold text-[#202020] dark:text-[#F4F4F6]">
-              {kpi.val}
-            </span>
-            <span className="text-xs text-[#777780]">{kpi.label}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-2 border-b border-[#DDDDE3] dark:border-[#2C2C35] pb-3">
-        {(
-          [
-            { id: 'books', label: `Book Management (${books.length})` },
-            { id: 'users', label: `User Management (${users.length})` },
-            { id: 'reports', label: `Moderation Reports (${reports.length})` },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setAdminTab(t.id)}
-            className={`py-2 px-4 rounded-lg text-xs font-semibold cursor-pointer ${
-              adminTab === t.id ? 'bg-[#E43136] text-white' : 'text-[#777780]'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {adminTab === 'books' && (
-        <div className="bg-white dark:bg-[#16161A] rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] divide-y divide-[#F1F1F4] dark:divide-[#2C2C35]">
-          {books.map((b) => (
-            <div key={b.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <Link to={`/book/${b.id}`} className="text-sm font-semibold hover:text-[#E43136]">
-                  {b.title}
-                </Link>
-                <p className="text-xs text-[#777780]">
-                  by {b.authorName} · Category: {b.category} · Status:{' '}
-                  <strong className="uppercase">{b.status}</strong>
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => updateBookStatusAdmin(b.id, 'published')}
-                  className="py-1.5 px-3 rounded-lg bg-[#268B62] text-white text-xs font-semibold cursor-pointer"
-                >
-                  Approve / Publish
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateBookStatusAdmin(b.id, 'removed')}
-                  className="py-1.5 px-3 rounded-lg border border-[#DDDDE3] text-xs font-semibold text-[#E6A02C] cursor-pointer"
-                >
-                  Unpublish
-                </button>
-                <button
-                  type="button"
-                  onClick={() => deleteBook(b.id)}
-                  className="py-1.5 px-3 rounded-lg bg-[#D9363E] text-white text-xs font-semibold cursor-pointer"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
+    <div className="min-h-[70vh] grid grid-cols-1 lg:grid-cols-[230px_minmax(0,1fr)] gap-5">
+      <aside className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-3 h-fit lg:sticky lg:top-4">
+        <div className="px-3 pt-2 pb-4 border-b border-[#EEEFF2] dark:border-[#2C2C35]">
+          <div className="text-[10px] uppercase tracking-[0.18em] font-bold text-[#E43136]">Redcover</div>
+          <h1 className="font-display text-xl font-bold mt-1">Headquarters</h1>
+          <p className="text-[11px] text-[#777780] mt-1">{roleLabel(hqRole || 'staff')} access</p>
         </div>
-      )}
-
-      {adminTab === 'users' && (
-        <div className="bg-white dark:bg-[#16161A] rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] divide-y divide-[#F1F1F4] dark:divide-[#2C2C35]">
-          {users.map((u) => (
-            <div key={u.uid} className="p-4 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <UserAvatar user={u} size="sm" />
-                <div>
-                  <Link to={`/profile/${u.uid}`} className="text-sm font-semibold hover:text-[#E43136]">
-                    {u.displayName}
-                  </Link>
-                  <p className="text-xs text-[#777780]">
-                    @{u.username} · Role: {u.role} · Plan: {u.membershipPlan}
-                  </p>
-                </div>
-              </div>
-              <Link
-                to={`/profile/${u.uid}`}
-                className="py-1.5 px-3 rounded-lg border border-[#DDDDE3] text-xs font-semibold"
-              >
-                Inspect Profile
-              </Link>
-            </div>
+        <nav className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-1 pt-3">
+          {navigation.map((item) => (
+            <button key={item.id} type="button" onClick={() => setActiveTab(item.id)} className={"w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-semibold transition-colors " + (activeTab === item.id ? 'bg-[#E43136] text-white' : 'text-[#62626C] dark:text-[#B0B0B8] hover:bg-black/5 dark:hover:bg-white/5')}>
+              {item.icon}<span>{item.label}</span>
+            </button>
           ))}
-        </div>
-      )}
+        </nav>
+        <div className="hidden lg:block mx-3 mt-4 pt-3 border-t border-[#EEEFF2] dark:border-[#2C2C35] text-[10px] text-[#8A8A94]">Server-authorized · paginated</div>
+      </aside>
 
-      {adminTab === 'reports' &&
-        (reports.length > 0 ? (
-          <div className="space-y-3">
-            {reports.map((rep) => (
-              <div
-                key={rep.id}
-                className="bg-white dark:bg-[#16161A] rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] p-4 flex items-center justify-between gap-4"
-              >
-                <div>
-                  <p className="text-sm font-semibold">
-                    [{rep.targetType.toUpperCase()}] {rep.targetTitle}
-                  </p>
-                  <p className="text-xs text-[#777780]">Reason: {rep.reason}</p>
-                  <span className="text-[11px] uppercase font-semibold text-[#E43136]">
-                    Status: {rep.status}
-                  </span>
+      <main className="min-w-0 space-y-5">
+        <header className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
+          <div><p className="text-[10px] uppercase tracking-[0.16em] text-[#E43136] font-bold">Owner Control Center</p><h2 className="font-display text-2xl sm:text-3xl font-bold mt-1">{navigation.find((item) => item.id === activeTab)?.label || 'Headquarters'}</h2><p className="text-xs text-[#777780] mt-1">Live platform data and permission-checked controls.</p></div>
+          <div className="flex items-center gap-2 text-xs"><span className="px-2.5 py-1.5 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-[#777780]">{hqRole === 'owner' ? 'Owner' : 'Staff'}</span>{activeTab === 'overview' && <button type="button" onClick={() => void runAction('overview', () => headquartersService.getOverview(rangeDays), 'Overview refreshed.')} className="px-3 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] font-semibold inline-flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5" />Refresh</button>}</div>
+        </header>
+
+        {error && <div role="alert" className="rounded-xl border border-red-300 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-xs text-red-700 dark:text-red-300 flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /><span>{error}</span><button type="button" onClick={() => setError('')} className="ml-auto font-bold">Dismiss</button></div>}
+        {loading && <div className="rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4 text-xs text-[#777780] flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading live data…</div>}
+
+        {['analytics', 'membership', 'brand', 'settings', 'support', 'security', 'posts', 'reviews', 'comments'].includes(activeTab) && (
+          <HeadquartersExtendedPanels activeTab={activeTab} rangeDays={rangeDays} addToast={addToast} />
+        )}
+
+        {activeTab === 'overview' && (
+          <div className="space-y-5">
+            <section className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4 flex flex-wrap items-end gap-3">
+              <label className="text-xs font-semibold">Date range<select value={rangeDays} onChange={(e) => setRangeDays(Number(e.target.value))} className="block mt-1 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent px-3 py-2"><option value={1}>Today</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
+              <label className="text-xs font-semibold">Custom start<input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="block mt-1 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent px-3 py-2" /></label>
+              <label className="text-xs font-semibold">Custom end<input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="block mt-1 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent px-3 py-2" /></label>
+              <span className="ml-auto text-[10px] text-[#8A8A94]">Updated {overview?.generatedAt ? new Date(overview.generatedAt).toLocaleTimeString() : '—'}</span>
+            </section>
+            <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+              {Object.entries(metricLabels).map(([key, label]) => (
+                <div key={key} className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4">
+                  <div className="text-[11px] text-[#777780] min-h-8">{label}</div><div className="text-xl sm:text-2xl font-bold tabular-nums mt-1">{metricValue(overview?.metrics[key])}</div>
                 </div>
-                {rep.status === 'open' && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => resolveReportAdmin(rep.id, 'resolved')}
-                      className="py-1.5 px-3 rounded-lg bg-[#268B62] text-white text-xs font-semibold cursor-pointer"
-                    >
-                      Resolve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => resolveReportAdmin(rep.id, 'dismissed')}
-                      className="py-1.5 px-3 rounded-lg border border-[#DDDDE3] text-xs font-semibold cursor-pointer"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+              ))}
+            </section>
+            <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {[['services', overview?.services || {}], ['integrations', overview?.integrations || {}]].map(([group, entries]) => (
+                <div key={String(group)} className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4 sm:p-5">
+                  <h3 className="font-semibold text-sm mb-3">{group === 'services' ? 'Platform services' : 'Integrations'}</h3>
+                  <div className="space-y-2">{Object.entries(entries as Record<string, HqServiceHealth>).map(([name, health]) => <div key={name} className="rounded-xl border border-[#EEEFF2] dark:border-[#2B2B34] p-3 flex items-start gap-3"><span className={"mt-0.5 rounded-full border px-2 py-1 text-[9px] uppercase font-bold " + healthColor(health.status)}>{health.status}</span><div className="min-w-0"><div className="text-xs font-semibold">{healthLabel(name)}</div><p className="text-[11px] text-[#777780] mt-0.5">{health.details}</p></div></div>)}</div>
+                </div>
+              ))}
+            </section>
+            <div className="rounded-xl border border-sky-300/60 bg-sky-50 dark:bg-sky-950/20 dark:border-sky-900/40 p-4 text-xs text-sky-900 dark:text-sky-200 flex gap-2"><Info className="w-4 h-4 shrink-0" /><span>Billing cost, storage byte totals, active-user analytics and daily trend charts are marked unavailable until the matching Billing/Analytics integrations or historical aggregation are enabled. No placeholder figures are shown.</span></div>
           </div>
-        ) : (
-          <EmptyState title="Zero Open Reports" description="No community reports require moderation." />
-        ))}
+        )}
+
+        {activeTab === 'users' && (
+          <section className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] overflow-hidden">
+            <div className="p-4 border-b border-[#EEEFF2] dark:border-[#2C2C35] flex flex-wrap items-center gap-3"><div className="relative flex-1 min-w-[220px]"><Search className="absolute left-3 top-2.5 w-4 h-4 text-[#8A8A94]" /><input value={userSearch} onChange={(e) => setUserSearch(e.target.value)} placeholder="Search name, username, email or UID" className="w-full pl-9 pr-3 py-2 rounded-xl border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-xs" /></div><span className="text-[11px] text-[#8A8A94]">{users.length} loaded · pages of 25</span></div>
+            <div className="p-4 grid grid-cols-2 lg:grid-cols-5 gap-2 border-b border-[#EEEFF2] dark:border-[#2C2C35]"><select aria-label="Account status filter" value={userStatusFilter} onChange={(e) => setUserStatusFilter(e.target.value)} className="px-2 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-[10px]"><option value="">All statuses</option><option value="active">Active</option><option value="suspended">Suspended</option></select><select aria-label="User role filter" value={userRoleFilter} onChange={(e) => setUserRoleFilter(e.target.value)} className="px-2 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-[10px]"><option value="">All roles</option><option value="staff">Staff</option>{staffRoles.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}</select><select aria-label="Membership filter" value={userPlanFilter} onChange={(e) => setUserPlanFilter(e.target.value)} className="px-2 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-[10px]"><option value="">All memberships</option><option value="free">Free</option><option value="premium">Premium</option></select><label className="text-[9px] text-[#777780]">Joined after<input type="date" value={userCreatedFrom} onChange={(e) => setUserCreatedFrom(e.target.value)} className="mt-1 block w-full px-2 py-1.5 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-[10px]" /></label><label className="text-[9px] text-[#777780]">Joined before<input type="date" value={userCreatedTo} onChange={(e) => setUserCreatedTo(e.target.value)} className="mt-1 block w-full px-2 py-1.5 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-[10px]" /></label></div>
+            <div className="divide-y divide-[#EEEFF2] dark:divide-[#2B2B34]">{users.map((user) => <div key={user.uid} className="p-4 flex flex-col xl:flex-row xl:items-center gap-3 xl:gap-6"><div className="min-w-0 flex-1"><div className="text-sm font-semibold truncate">{user.displayName} <span className="text-[10px] text-[#8A8A94] font-normal">@{user.username || '—'}</span></div><div className="text-xs text-[#6F6F79] truncate mt-0.5">{user.email || 'No email'} · UID {user.uid}</div><div className="text-[10px] text-[#8A8A94] mt-1">Joined {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'} · Last seen {user.lastSignInAt ? new Date(user.lastSignInAt).toLocaleDateString() : '—'} · {user.booksCount} books · {user.membershipPlan}</div></div><div className="flex flex-wrap items-center gap-2"><span className={"px-2 py-1 rounded-md text-[10px] font-semibold " + (user.disabled ? 'bg-red-500/10 text-red-600' : 'bg-emerald-500/10 text-emerald-700')}>{user.disabled ? 'Suspended' : 'Active'}</span>{user.hqRole && <span className="px-2 py-1 rounded-md bg-[#E43136]/10 text-[#E43136] text-[10px] font-semibold">{roleLabel(user.hqRole)}</span>}<Link to={'/profile/' + user.uid} className="px-3 py-1.5 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-[11px] font-semibold">Profile</Link><button type="button" onClick={() => setSelectedUser(user)} className="px-3 py-1.5 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-[11px] font-semibold">Details</button>{hqRole === 'owner' && <button type="button" disabled={busyId === user.uid || user.hqRole === 'owner'} onClick={() => void runAction(user.uid, () => headquartersService.setAccountSuspended(user.uid, !user.disabled), user.disabled ? 'Account restored.' : 'Account suspended.', 'users')} className="px-3 py-1.5 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-[11px] font-semibold disabled:opacity-50">{user.disabled ? 'Restore' : 'Suspend'}</button>}{hqRole === 'owner' && <div className="flex items-center gap-1"><select aria-label={'Staff role for ' + user.displayName} value={roleDrafts[user.uid] || ''} onChange={(e) => setRoleDrafts((old) => ({ ...old, [user.uid]: e.target.value as HeadquartersRole }))} className="max-w-36 px-2 py-1.5 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-[10px]"><option value="">Staff role…</option>{staffRoles.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}</select><button type="button" disabled={!roleDrafts[user.uid] || busyId === user.uid} onClick={() => void runAction(user.uid, () => headquartersService.setStaffRole(user.uid, roleDrafts[user.uid]), 'Staff access updated.', 'staff')} className="px-2.5 py-1.5 rounded-lg bg-[#E43136] text-white text-[10px] font-semibold disabled:opacity-50">Assign</button></div>}</div></div>)}</div>
+            {userPageToken && <div className="p-4 text-center"><button type="button" disabled={busyId === 'users-more'} onClick={() => void loadMoreUsers()} className="px-4 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-xs font-semibold">{busyId === 'users-more' ? 'Loading…' : 'Load more users'}</button></div>}
+            {!loading && users.length === 0 && <div className="p-8 text-center text-xs text-[#8A8A94]">No users found for this search.</div>}
+          </section>
+        )}
+
+        {selectedUser && <HqUserDetailsModal user={selectedUser} isOwner={hqRole === 'owner'} onClose={() => setSelectedUser(null)} onDeleted={() => { void headquartersService.listUsers(userSearchDebounced).then((result) => { setUsers(result.users); setUserPageToken(result.nextPageToken); }); }} addToast={addToast} />}
+
+        {activeTab === 'staff' && (
+          <section className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] overflow-hidden"><div className="p-4 border-b border-[#EEEFF2] dark:border-[#2C2C35]"><h3 className="text-sm font-semibold">Staff permissions</h3><p className="text-[11px] text-[#777780] mt-1">Revoking staff access leaves the person’s normal account, books and followers intact.</p></div><div className="divide-y divide-[#EEEFF2] dark:divide-[#2B2B34]">{staff.map((person) => <div key={person.uid} className="p-4 flex flex-wrap items-center gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-semibold">{person.displayName} <span className="ml-1 text-[10px] text-[#268B62]">✓ Redcover staff</span></div><div className="text-xs text-[#777780]">{person.email} · {person.uid}</div><div className="flex flex-wrap gap-1 mt-2">{person.permissions.map((permission) => <span key={permission} className="px-2 py-1 rounded bg-black/5 dark:bg-white/5 text-[9px]">{permission}</span>)}</div></div><select aria-label={'Role for ' + person.displayName} value={roleDrafts[person.uid] || person.role} onChange={(e) => setRoleDrafts((old) => ({ ...old, [person.uid]: e.target.value as HeadquartersRole }))} className="px-2 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-xs">{staffRoles.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}</select><button type="button" disabled={busyId === person.uid} onClick={() => void runAction(person.uid, () => headquartersService.setStaffRole(person.uid, roleDrafts[person.uid] || person.role), 'Staff role updated.', 'staff')} className="px-3 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-xs font-semibold">Save role</button><button type="button" disabled={busyId === person.uid} onClick={() => void runAction(person.uid, () => headquartersService.setStaffRole(person.uid, null), 'Staff access revoked.', 'staff')} className="px-3 py-2 rounded-lg text-red-600 border border-red-200 text-xs font-semibold">Revoke access</button></div>)}{!loading && staff.length === 0 && <div className="p-8 text-center text-xs text-[#8A8A94]">No staff roles have been provisioned.</div>}</div></section>
+        )}
+
+        {activeTab === 'content' && (
+          <section className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] overflow-hidden"><div className="p-4 border-b border-[#EEEFF2] dark:border-[#2C2C35] flex flex-wrap gap-2"><div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-2.5 w-4 h-4 text-[#8A8A94]" /><input value={bookSearch} onChange={(e) => setBookSearch(e.target.value)} placeholder="Search title, author or book ID" className="w-full pl-9 pr-3 py-2 rounded-xl border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-xs" /></div><select value={bookStatus} onChange={(e) => setBookStatus(e.target.value)} className="px-3 py-2 rounded-xl border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-xs"><option value="">All statuses</option>{['published','draft','pending','removed'].map((status) => <option key={status} value={status}>{roleLabel(status)}</option>)}</select></div><div className="divide-y divide-[#EEEFF2] dark:divide-[#2B2B34]">{books.map((book) => <div key={book.id} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3"><div className="w-12 h-16 rounded-lg bg-black/5 overflow-hidden shrink-0">{book.coverURL && <img src={book.coverURL} alt="" loading="lazy" className="w-full h-full object-cover" />}</div><div className="min-w-0 flex-1"><Link to={'/book/' + book.id} className="text-sm font-semibold hover:text-[#E43136]">{book.title}</Link><p className="text-xs text-[#777780] mt-0.5">{book.authorName} · {book.category} · {book.status}</p><p className="text-[10px] text-[#8A8A94] mt-1 truncate">Book ID: {book.id}</p></div><div className="flex gap-2"><button type="button" disabled={busyId === book.id || book.status === 'published'} onClick={() => void runAction(book.id, () => headquartersService.updateBookStatus(book.id, 'published'), 'Book published.', 'content')} className="px-3 py-2 rounded-lg bg-[#268B62] text-white text-[11px] font-semibold disabled:opacity-40">Publish</button><button type="button" disabled={busyId === book.id || book.status === 'removed'} onClick={() => void runAction(book.id, () => headquartersService.updateBookStatus(book.id, 'removed'), 'Book unpublished (recoverable).', 'content')} className="px-3 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-[11px] font-semibold disabled:opacity-40">Unpublish</button></div></div>)}</div>{bookPageToken && !bookSearch && <div className="p-4 text-center"><button type="button" disabled={busyId === 'books-more'} onClick={() => void loadMoreBooks()} className="px-4 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-xs font-semibold">Load more books</button></div>}{!loading && books.length === 0 && <div className="p-8 text-center text-xs text-[#8A8A94]">No books match these filters.</div>}</section>
+        )}
+
+        {activeTab === 'moderation' && (
+          <section className="space-y-3">{reports.map((report) => <article key={report.id} className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-[10px] uppercase tracking-wider text-[#E43136] font-bold">{report.targetType} · {report.status}</div><h3 className="text-sm font-semibold mt-1">{report.targetTitle || report.targetId}</h3><p className="text-xs text-[#777780] mt-1">{report.reason} · Reporter {report.reporterId}</p>{report.description && <p className="text-xs mt-2">{report.description}</p>}<p className="text-[10px] text-[#8A8A94] mt-2">{report.createdAt ? new Date(report.createdAt).toLocaleString() : ''} · ID {report.id}</p></div><div className="flex gap-2"><button type="button" disabled={busyId === report.id} onClick={() => void runAction(report.id, () => headquartersService.resolveReport(report.id, 'investigating'), 'Report assigned for review.', 'moderation')} className="px-3 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-[11px] font-semibold">Investigate</button><button type="button" disabled={busyId === report.id} onClick={() => void runAction(report.id, () => headquartersService.resolveReport(report.id, 'resolved'), 'Report resolved.', 'moderation')} className="px-3 py-2 rounded-lg bg-[#268B62] text-white text-[11px] font-semibold">Resolve</button><button type="button" disabled={busyId === report.id} onClick={() => void runAction(report.id, () => headquartersService.resolveReport(report.id, 'dismissed'), 'Report dismissed.', 'moderation')} className="px-3 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] text-[11px] font-semibold">Dismiss</button></div></div></article>)}{!loading && reports.length === 0 && <div className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-8 text-center text-xs text-[#8A8A94]">No open reports.</div>}</section>
+        )}
+
+        {activeTab === 'health' && (
+          <section className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] overflow-hidden"><div className="p-4 border-b border-[#EEEFF2] dark:border-[#2C2C35] flex flex-wrap items-center gap-3"><div className="flex items-center gap-2 text-sm font-semibold"><Activity className="w-4 h-4 text-[#E43136]" />Error Center</div><select value={eventStatus} onChange={(e) => setEventStatus(e.target.value)} className="ml-auto px-3 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-xs"><option value="">All events</option>{['new','investigating','resolved','ignored'].map((status) => <option key={status} value={status}>{roleLabel(status)}</option>)}</select></div><div className="divide-y divide-[#EEEFF2] dark:divide-[#2B2B34]">{events.map((event) => <article key={event.id} className="p-4 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={"px-2 py-1 rounded text-[9px] uppercase font-bold " + (event.severity === 'critical' ? 'bg-red-500/10 text-red-600' : event.severity === 'warning' ? 'bg-amber-500/10 text-amber-700' : 'bg-sky-500/10 text-sky-700')}>{event.severity}</span><span className="text-[10px] uppercase font-semibold">{event.service}</span><span className="text-[10px] text-[#8A8A94]">{event.category} / {event.operation}</span><span className="text-[10px] text-[#8A8A94]">{event.status}</span></div><div className="text-xs font-semibold mt-2">{event.message || event.errorCode || 'Operation event'}</div><div className="text-[10px] text-[#777780] mt-1">Code {event.errorCode || '—'} · User {event.actorUid || '—'} · {event.createdAt ? new Date(event.createdAt).toLocaleString() : '—'}</div>{(event.fileCategory || event.fileName || event.storagePath) && <div className="text-[10px] text-[#777780] mt-1">{event.fileCategory} · {event.fileName} · {event.storagePath}</div>}<div className="text-[10px] text-[#8A8A94] mt-1">ID {event.id} · Related {event.relatedId || '—'} · Retry {event.retryStatus || '—'}</div></div><div className="flex items-center gap-2"><select aria-label="Update issue status" value="" onChange={(e) => { const value=e.target.value as 'investigating'|'resolved'|'ignored'; if(value) void runAction(event.id, () => headquartersService.updateEvent(event.id,value), 'Issue status updated.', 'health'); }} className="px-2 py-2 rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent text-[10px]"><option value="">Update status…</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="ignored">Ignored</option></select></div></article>)}</div>{!loading && events.length === 0 && <div className="p-8 text-center text-xs text-[#8A8A94]">No diagnostic events recorded yet. Services without probes remain marked unknown.</div>}</section>
+        )}
+
+        {activeTab === 'audit' && (
+          <section className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] overflow-hidden"><div className="p-4 border-b border-[#EEEFF2] dark:border-[#2C2C35]"><h3 className="text-sm font-semibold">Administrative activity</h3><p className="text-[11px] text-[#777780] mt-1">Latest 100 server-written events. Entries cannot be edited from the client.</p></div><div className="divide-y divide-[#EEEFF2] dark:divide-[#2B2B34]">{auditEntries.map((entry) => <div key={entry.id} className="p-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2"><div><div className="text-xs font-semibold">{entry.action}</div><div className="text-[10px] text-[#777780] mt-1">{entry.actorRole} · {entry.actorUid} → {entry.targetType} {entry.targetId} · {entry.result}</div><div className="text-[10px] text-[#8A8A94] mt-1">{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div></div><div className="text-[10px] text-[#777780]">{JSON.stringify(entry.previousValue)} → {JSON.stringify(entry.newValue)}</div></div>)}{!loading && auditEntries.length===0 && <div className="p-8 text-center text-xs text-[#8A8A94]">No audit events recorded yet.</div>}</div></section>
+        )}
+      </main>
     </div>
   );
 };
 
 export const AuthPage: React.FC = () => {
-  const { firebaseUser, loginWithGoogle, loginWithEmail, registerWithEmail, sendResetPassword, addToast } =
-    useRedcover();
+  const { firebaseUser, loginWithGoogle } = useRedcover();
   const navigate = useNavigate();
-
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [username, setUsername] = useState('');
-  const [acceptTerms, setAcceptTerms] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   if (firebaseUser) {
-    return (
-      <EmptyState
-        title="You Are Signed In to Redcover"
-        description="Your Redcover account is connected and synchronizing in real time with Firebase."
-        actionLabel="Go to Homepage"
-        actionTo="/"
-      />
-    );
+    return <EmptyState title="You Are Signed In to Redcover" description="Your Redcover account is connected and ready to use." actionLabel="Go to Homepage" actionTo="/" />;
   }
 
   const handleGoogle = async () => {
@@ -1158,353 +1262,25 @@ export const AuthPage: React.FC = () => {
     try {
       await loginWithGoogle();
       navigate('/');
-    } catch {
-      // Handled by toast
+    } catch (err: any) {
+      setFormError(err?.message || 'Google sign-in could not be completed. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
-      setFormError('Please enter your email address.');
-      return;
-    }
-
-    if (authMode === 'register') {
-      if (!displayName.trim()) {
-        setFormError('Please enter your full name.');
-        return;
-      }
-      if (password.length < 6) {
-        setFormError('Password must be at least 6 characters.');
-        return;
-      }
-      if (password !== confirmPassword) {
-        setFormError('Passwords do not match. Please re-enter.');
-        return;
-      }
-      if (!acceptTerms) {
-        setFormError('Please agree to the Terms & Conditions and Privacy Policy.');
-        return;
-      }
-
-      setSubmitting(true);
-      try {
-        const cleanUser =
-          username.trim() ||
-          cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') ||
-          `reader${Math.floor(Math.random() * 1000)}`;
-        await registerWithEmail(cleanEmail, password, displayName.trim(), cleanUser);
-        navigate('/');
-      } catch (err: any) {
-        setFormError(err?.message || 'Could not complete registration.');
-      } finally {
-        setSubmitting(false);
-      }
-    } else if (authMode === 'login') {
-      if (!password) {
-        setFormError('Please enter your password.');
-        return;
-      }
-      setSubmitting(true);
-      try {
-        await loginWithEmail(cleanEmail, password);
-        navigate('/');
-      } catch (err: any) {
-        setFormError(err?.message || 'Invalid email or password.');
-      } finally {
-        setSubmitting(false);
-      }
-    } else {
-      setSubmitting(true);
-      try {
-        await sendResetPassword(cleanEmail);
-        addToast('Password reset link sent to your email.', 'success');
-        setAuthMode('login');
-      } catch (err: any) {
-        setFormError(err?.message || 'Could not send reset link.');
-      } finally {
-        setSubmitting(false);
-      }
-    }
-  };
-
   return (
     <div className="max-w-4xl mx-auto my-6 sm:my-10 bg-white dark:bg-[#16161A] rounded-3xl border border-[#DDDDE3] dark:border-[#2C2C35] overflow-hidden shadow-xl grid grid-cols-1 md:grid-cols-12 min-h-[560px]">
-      {/* Left Column: Atmospheric Brand Visual */}
       <div className="hidden md:flex md:col-span-5 relative bg-black flex-col justify-between p-8 text-white">
-        <img
-          src="/assets/hero-banner.jpg"
-          alt="Redcover"
-          className="absolute inset-0 w-full h-full object-cover opacity-50"
-        />
+        <img src="/assets/hero-banner.jpg" alt="Redcover" className="absolute inset-0 w-full h-full object-cover opacity-50" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-
-        <div className="relative z-10 space-y-2">
-          <div className="inline-flex items-center gap-2">
-            <img
-              src="/assets/aistudio/WhatsApp_Image_2026-10-24_at_6.29.36_PM_8a2e5d20.jpeg"
-              alt="Redcover"
-              className="w-7 h-7 rounded-lg object-cover"
-            />
-            <span className="font-display text-xl font-bold text-[#E43136]">Redcover</span>
-          </div>
-          <p className="text-xs text-gray-300">Read • Write • Publish • Connect • Co-Read</p>
-        </div>
-
-        <div className="relative z-10 space-y-3">
-          <div className="space-y-2 text-xs text-gray-200">
-            <div className="flex items-center gap-2">
-              <span className="text-[#E43136]">✔</span>
-              <span>Discover original books &amp; stories</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[#E43136]">✔</span>
-              <span>Publish your own work with full ownership</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[#E43136]">✔</span>
-              <span>Co-Read in real time with friends</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[#E43136]">✔</span>
-              <span>100% free with safe ad support</span>
-            </div>
-          </div>
-          <div className="pt-4 border-t border-white/20 text-[11px] text-gray-400">
-            Official platform • <span className="text-white">https://redcover.app</span>
-          </div>
-        </div>
+        <div className="relative z-10 space-y-2"><span className="font-display text-xl font-bold text-[#E43136]">Redcover</span><p className="text-xs text-gray-300">Read • Write • Publish • Connect • Co-Read</p></div>
+        <div className="relative z-10 text-xs text-gray-200 space-y-2"><p>Discover original books and stories</p><p>Publish your own work</p><p>Co-read with friends</p></div>
       </div>
-
-      {/* Right Column: Interactive Form */}
       <div className="md:col-span-7 p-6 sm:p-10 flex flex-col justify-center space-y-5">
-        <div className="space-y-1">
-          <h1 className="font-display text-2xl font-bold text-[#202020] dark:text-[#F4F4F6]">
-            {authMode === 'login'
-              ? 'Sign In to Your Account'
-              : authMode === 'register'
-              ? 'Create Your Free Account'
-              : 'Reset Your Password'}
-          </h1>
-          <p className="text-xs text-[#777780] dark:text-[#9E9EA8]">
-            {authMode === 'login'
-              ? 'Welcome back! Enter your credentials to access your library and chats.'
-              : authMode === 'register'
-              ? 'Join our growing community of passionate readers and independent authors.'
-              : 'Enter your registered email to receive a secure password reset link.'}
-          </p>
-        </div>
-
-        {formError && (
-          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs">
-            {formError}
-          </div>
-        )}
-
-        {/* Google OAuth Button */}
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={handleGoogle}
-          className="w-full py-2.5 px-4 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] hover:bg-[#FAFAFB] dark:hover:bg-[#1E1E26] text-xs font-semibold flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 24 24">
-            <path
-              fill="#4285F4"
-              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-            />
-          </svg>
-          <span>Continue with Google</span>
-        </button>
-
-        <div className="relative flex items-center justify-center">
-          <div className="border-t border-[#DDDDE3] dark:border-[#2C2C35] w-full" />
-          <span className="bg-white dark:bg-[#16161A] px-3 text-[10px] text-[#777780] dark:text-[#9E9EA8] uppercase tracking-wider">
-            or with email
-          </span>
-          <div className="border-t border-[#DDDDE3] dark:border-[#2C2C35] w-full" />
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-3.5">
-          {authMode === 'register' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold mb-1">Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="e.g. Rahul Sharma"
-                  className="w-full py-2 px-3 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs sm:text-sm focus:outline-none focus:border-[#E43136]"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold mb-1">Username</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. rahulreads"
-                  className="w-full py-2 px-3 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs sm:text-sm focus:outline-none focus:border-[#E43136]"
-                />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold mb-1">Email Address *</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="w-full py-2 px-3 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs sm:text-sm focus:outline-none focus:border-[#E43136]"
-            />
-          </div>
-
-          {authMode !== 'reset' && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold">Password *</label>
-                {authMode === 'login' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormError(null);
-                      setAuthMode('reset');
-                    }}
-                    className="text-[11px] text-[#E43136] hover:underline cursor-pointer"
-                  >
-                    Forgot password?
-                  </button>
-                )}
-              </div>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full py-2 px-3 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs sm:text-sm focus:outline-none focus:border-[#E43136]"
-              />
-            </div>
-          )}
-
-          {authMode === 'register' && (
-            <div>
-              <label className="block text-xs font-semibold mb-1">Confirm Password *</label>
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full py-2 px-3 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs sm:text-sm focus:outline-none focus:border-[#E43136]"
-              />
-            </div>
-          )}
-
-          {authMode === 'register' && (
-            <label className="flex items-start gap-2 text-xs text-[#6E6E77] dark:text-[#9E9EA8] cursor-pointer pt-1">
-              <input
-                type="checkbox"
-                checked={acceptTerms}
-                onChange={(e) => setAcceptTerms(e.target.checked)}
-                className="mt-0.5 rounded text-[#E43136] focus:ring-[#E43136]"
-              />
-              <span>
-                I agree to the{' '}
-                <Link to="/terms" className="text-[#E43136] underline" target="_blank">
-                  Terms &amp; Conditions
-                </Link>{' '}
-                and{' '}
-                <Link to="/privacy" className="text-[#E43136] underline" target="_blank">
-                  Privacy Policy
-                </Link>
-                .
-              </span>
-            </label>
-          )}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-2.5 px-4 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs sm:text-sm font-semibold transition-colors cursor-pointer shadow-md disabled:opacity-50"
-          >
-            {submitting
-              ? 'Authenticating...'
-              : authMode === 'login'
-              ? 'Sign In with Email'
-              : authMode === 'register'
-              ? 'Create Free Account'
-              : 'Send Password Reset Link'}
-          </button>
-        </form>
-
-        <div className="flex items-center justify-between text-xs text-[#6E6E77] dark:text-[#9E9EA8] pt-2 border-t border-[#F1F1F4] dark:border-[#2C2C35]">
-          {authMode === 'login' ? (
-            <div className="w-full text-center">
-              <span>New to Redcover? </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFormError(null);
-                  setAuthMode('register');
-                }}
-                className="text-[#E43136] font-bold hover:underline cursor-pointer"
-              >
-                Create a Free Account
-              </button>
-            </div>
-          ) : authMode === 'register' ? (
-            <div className="w-full text-center">
-              <span>Already registered? </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFormError(null);
-                  setAuthMode('login');
-                }}
-                className="text-[#E43136] font-bold hover:underline cursor-pointer"
-              >
-                Sign In to Account
-              </button>
-            </div>
-          ) : (
-            <div className="w-full text-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setFormError(null);
-                  setAuthMode('login');
-                }}
-                className="text-[#6E6E77] hover:text-[#202020] dark:hover:text-white cursor-pointer"
-              >
-                ← Back to Sign In
-              </button>
-            </div>
-          )}
-        </div>
+        <div className="space-y-1"><h1 className="font-display text-2xl font-bold text-[#202020] dark:text-[#F4F4F6]">Sign In or Create an Account</h1><p className="text-xs text-[#777780] dark:text-[#9E9EA8]">Continue securely with your Google account.</p></div>
+        {formError && <div role="alert" className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs">{formError}</div>}
+        <button type="button" disabled={submitting} onClick={handleGoogle} className="w-full py-3 px-4 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] hover:bg-[#FAFAFB] dark:hover:bg-[#1E1E26] text-sm font-semibold flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50"><span className="text-lg font-bold text-[#4285F4]">G</span><span>{submitting ? 'Connecting…' : 'Continue with Google'}</span></button>
       </div>
     </div>
   );

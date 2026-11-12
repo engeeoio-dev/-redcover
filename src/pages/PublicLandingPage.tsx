@@ -26,19 +26,9 @@ export const PublicLandingPage: React.FC = () => {
   const {
     books,
     loginWithGoogle,
-    loginWithEmail,
-    registerWithEmail,
-    addToast,
   } = useRedcover();
   const navigate = useNavigate();
 
-  // Auth Card inline state
-  const [authMode, setAuthMode] = useState<'options' | 'email-signup' | 'email-login'>('options');
-  const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [acceptTerms, setAcceptTerms] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   // FAQ Accordion state
@@ -61,32 +51,7 @@ export const PublicLandingPage: React.FC = () => {
     }
   };
 
-  const handleEmailAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (authMode === 'email-signup' && !acceptTerms) {
-      addToast('Please accept the Terms & Conditions and Privacy Policy.', 'info');
-      return;
-    }
 
-    setSubmitting(true);
-    try {
-      if (authMode === 'email-signup') {
-        const cleanName = name.trim() || 'Reader';
-        const cleanUsername =
-          username.trim() ||
-          email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') ||
-          `reader${Math.floor(Math.random() * 1000)}`;
-        await registerWithEmail(email, password, cleanName, cleanUsername);
-      } else {
-        await loginWithEmail(email, password);
-      }
-      navigate('/');
-    } catch {
-      // Handled by toast
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const faqs = [
     {
@@ -222,7 +187,7 @@ export const PublicLandingPage: React.FC = () => {
                   </span>
                 </div>
                 <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight">
-                  {authMode === 'email-login' ? 'Welcome Back' : 'Join Redcover'}
+                  Join Redcover
                 </h2>
                 <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8] max-w-xs mx-auto">
                   Create your account and step into a world of books, ideas and fellow readers.
@@ -230,8 +195,7 @@ export const PublicLandingPage: React.FC = () => {
               </div>
 
               {/* Value Checklist */}
-              {authMode === 'options' && (
-                <ul className="space-y-2 text-xs text-[#4E4E56] dark:text-[#B0B0BC]">
+              <ul className="space-y-2 text-xs text-[#4E4E56] dark:text-[#B0B0BC]">
                   {[
                     'Read meaningful books',
                     'Publish your own work',
@@ -248,193 +212,14 @@ export const PublicLandingPage: React.FC = () => {
                     </li>
                   ))}
                 </ul>
-              )}
 
-              {/* Primary Buttons State */}
-              {authMode === 'options' ? (
-                <div className="space-y-3 pt-2">
-                  {/* Google OAuth Button */}
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={handleGoogleAuth}
-                    className="w-full py-2.5 px-4 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] hover:bg-[#FAFAFB] dark:hover:bg-[#1E1E26] text-xs font-semibold flex items-center justify-center gap-2.5 transition-colors cursor-pointer"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                      />
-                    </svg>
-                    <span>Continue with Google</span>
-                  </button>
-
-                  {/* Continue with Email */}
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode('email-signup')}
-                    className="w-full py-2.5 px-4 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] hover:bg-[#FAFAFB] dark:hover:bg-[#1E1E26] text-xs font-semibold flex items-center justify-center gap-2.5 transition-colors cursor-pointer"
-                  >
-                    <Mail className="w-4 h-4 text-[#6E6E77]" />
-                    <span>Continue with Email</span>
-                  </button>
-
-                  <div className="relative flex items-center justify-center my-2">
-                    <div className="border-t border-[#DDDDE3] dark:border-[#2A2A35] w-full" />
-                    <span className="bg-white dark:bg-[#16161D] px-2.5 text-[10px] text-[#8E8E98] uppercase tracking-wider">
-                      or
-                    </span>
-                    <div className="border-t border-[#DDDDE3] dark:border-[#2A2A35] w-full" />
-                  </div>
-
-                  {/* Red CTA Button */}
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode('email-signup')}
-                    className="w-full py-3 px-4 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs sm:text-sm font-semibold transition-colors cursor-pointer shadow-md active:scale-[0.99]"
-                  >
-                    Create Free Account
-                  </button>
-
-                  {/* Existing User Login Toggle */}
-                  <div className="text-center pt-1 text-xs text-[#6E6E77] dark:text-[#9E9EA8]">
-                    <span>Already have an account? </span>
-                    <button
-                      type="button"
-                      onClick={() => setAuthMode('email-login')}
-                      className="text-[#E43136] font-bold hover:underline cursor-pointer"
-                    >
-                      Sign In
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* Inline Email Auth Form */
-                <form onSubmit={handleEmailAuthSubmit} className="space-y-3 pt-1">
-                  {authMode === 'email-signup' && (
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-semibold mb-1">Full Name</label>
-                        <input
-                          type="text"
-                          required
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          placeholder="Your Name"
-                          className="w-full py-2 px-3 rounded-lg border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold mb-1">Username</label>
-                        <input
-                          type="text"
-                          required
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                          placeholder="username"
-                          className="w-full py-2 px-3 rounded-lg border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-[11px] font-semibold mb-1">Email</label>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="w-full py-2 px-3 rounded-lg border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold mb-1">Password</label>
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full py-2 px-3 rounded-lg border border-[#DDDDE3] dark:border-[#2C2C35] bg-transparent text-xs"
-                    />
-                  </div>
-
-                  {authMode === 'email-signup' && (
-                    <label className="flex items-start gap-2 text-[11px] text-[#6E6E77] dark:text-[#9E9EA8] cursor-pointer pt-1">
-                      <input
-                        type="checkbox"
-                        checked={acceptTerms}
-                        onChange={(e) => setAcceptTerms(e.target.checked)}
-                        className="mt-0.5 rounded text-[#E43136]"
-                      />
-                      <span>
-                        I agree to Redcover&apos;s{' '}
-                        <Link to="/terms" className="text-[#E43136] underline" target="_blank">
-                          Terms
-                        </Link>{' '}
-                        and{' '}
-                        <Link to="/privacy" className="text-[#E43136] underline" target="_blank">
-                          Privacy Policy
-                        </Link>
-                      </span>
-                    </label>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs font-semibold cursor-pointer transition-colors shadow-sm disabled:opacity-50"
-                  >
-                    {submitting
-                      ? 'Authenticating...'
-                      : authMode === 'email-signup'
-                      ? 'Complete Free Registration'
-                      : 'Sign In to Account'}
-                  </button>
-
-                  <div className="flex items-center justify-between text-[11px] pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setAuthMode('options')}
-                      className="text-[#6E6E77] hover:text-[#202020] dark:hover:text-white cursor-pointer"
-                    >
-                      ← Back
-                    </button>
-                    {authMode === 'email-signup' ? (
-                      <button
-                        type="button"
-                        onClick={() => setAuthMode('email-login')}
-                        className="text-[#E43136] font-semibold cursor-pointer"
-                      >
-                        Already have an account? Sign In
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setAuthMode('email-signup')}
-                        className="text-[#E43136] font-semibold cursor-pointer"
-                      >
-                        New here? Create Account
-                      </button>
-                    )}
-                  </div>
-                </form>
-              )}
+              <div className="space-y-3 pt-2">
+                <button type="button" disabled={submitting} onClick={handleGoogleAuth} className="w-full py-3 px-4 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] hover:bg-[#FAFAFB] dark:hover:bg-[#1E1E26] text-sm font-semibold flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50">
+                  <span className="text-lg font-bold text-[#4285F4]">G</span>
+                  <span>{submitting ? 'Connecting…' : 'Sign in or sign up with Google'}</span>
+                </button>
+                <p className="text-center text-[11px] text-[#777780] dark:text-[#9E9EA8]">Use your Google account to continue to Redcover.</p>
+              </div>
             </div>
           </div>
         </div>
@@ -667,10 +452,10 @@ export const PublicLandingPage: React.FC = () => {
             </p>
             <button
               type="button"
-              onClick={() => setAuthMode('email-signup')}
+              onClick={handleGoogleAuth}
               className="w-full py-2.5 px-4 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs font-semibold cursor-pointer transition-colors"
             >
-              Join as a Writer
+              Continue with Google
             </button>
           </div>
         </div>
@@ -735,11 +520,11 @@ export const PublicLandingPage: React.FC = () => {
             type="button"
             onClick={() => {
               window.scrollTo({ top: 0, behavior: 'smooth' });
-              setAuthMode('email-signup');
+              void handleGoogleAuth();
             }}
             className="px-6 py-3 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs sm:text-sm font-semibold transition-colors cursor-pointer shadow-md"
           >
-            Create Free Account
+            Continue with Google
           </button>
           <Link
             to="/explore"

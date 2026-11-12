@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, Plus, MessageSquare, CheckCheck, User, Users } from 'lucide-react';
 import { Chat, UserProfile } from '../../models/types';
 import { UserAvatar } from '../common/UIPrimitives';
+import { PresenceDot } from '../common/PresenceDot';
 
 interface ConversationListProps {
   chats: Chat[];
@@ -166,10 +167,12 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                 }`}
               >
                 <div className="relative shrink-0">
-                  <UserAvatar user={{ displayName: otherName, photoURL: otherAvatar, isOnline: otherUser?.isOnline, showOnlineStatus: otherUser?.showOnlineStatus ?? true }} size="md" />
-                  {otherUser?.isOnline && (
-                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#121217]" />
-                  )}
+                  <UserAvatar user={{ displayName: otherName, photoURL: otherAvatar }} size="md" />
+                  <PresenceDot
+                    uid={otherUid}
+                    showOnlineStatus={otherUser?.showOnlineStatus ?? true}
+                    className="absolute bottom-0 right-0"
+                  />
                 </div>
 
                 <div className="min-w-0 flex-1">

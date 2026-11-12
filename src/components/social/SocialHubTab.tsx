@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, Friendship, Book } from '../../models/types';
 import { UserAvatar } from '../common/UIPrimitives';
+import { PresenceDot } from '../common/PresenceDot';
 import { generateFriendSuggestions, computeMutualFriends } from '../../services/social/discoveryService';
 import { isSystemAccount } from '../../models/types';
 
@@ -192,9 +193,11 @@ export const SocialHubTab: React.FC<SocialHubTabProps> = ({
                     >
                       <div className="relative">
                         <UserAvatar photoURL={user.photoURL} name={user.displayName} size="md" />
-                        {user.isOnline && (
-                          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#121217]" />
-                        )}
+                        <PresenceDot
+                          uid={user.uid}
+                          showOnlineStatus={user.showOnlineStatus}
+                          className="absolute bottom-0 right-0 w-3 h-3"
+                        />
                       </div>
                       <div className="min-w-0">
                         <h4 className="text-xs sm:text-sm font-semibold text-[#202020] dark:text-[#F4F4F6] truncate">

@@ -23,18 +23,11 @@ import {
   serverTimestamp,
   increment,
   arrayUnion,
+  arrayRemove,
+  writeBatch,
 } from 'firebase/firestore';
 import { ref as rtdbRef, onValue } from 'firebase/database';
 import { auth, db, defaultDb, rtdb, googleProvider } from '../services/firebase/firebaseConfig';
-import {
-  startOrGetRtdbChat,
-  sendRtdbChatMessage,
-  subscribeRtdbUserChats,
-  editRtdbChatMessage,
-  unsendRtdbChatMessage,
-  reactToRtdbChatMessage,
-  deleteRtdbMessageForMe,
-} from '../services/firebase/rtdbChatService';
 import { handleFirestoreError, OperationType } from '../services/firebase/errorHandler';
 import {
   encodeCommentReplyText,
@@ -164,6 +157,10 @@ interface RedcoverContextValue {
   addRecentSearch: (term: string) => void;
   clearRecentSearches: () => void;
   loginWithGoogle: () => Promise<void>;
+  hqRole: string | null;
+  hqPermissions: string[];
+  refreshHqClaims: () => Promise<void>;
+  hasHqPermission: (permission: string) => boolean;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   registerWithEmail: (email: string, pass: string, displayName: string, username: string) => Promise<void>;
   sendResetPassword: (email: string) => Promise<void>;
@@ -276,6 +273,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [privateInfo, setPrivateInfo] = useState<UserPrivateInfo | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [hqRole, setHqRole] = useState<string | null>(null);
+  const [hqPermissions, setHqPermissions] = useState<string[]>([]);
 
   const [firestoreBooks, setFirestoreBooks] = useState<Book[]>([]);
   const [myAuthoredBooks, setMyAuthoredBooks] = useState<Book[]>([]);
@@ -395,7 +394,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       const snap = await getDoc(userRef);
-      const isOwnerAdmin = fbUser.email === 'pangoworld01@gmail.com';
       if (!snap.exists()) {
         const mappedAndroid = androidUserData ? normalizeUserDoc(fbUser.uid, androidUserData) : null;
         const cleanHandle = (
@@ -422,10 +420,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           streakDays: Math.max(0, Math.round(Number(mappedAndroid?.streakDays) || 0)),
           points: Math.max(0, Math.round(Number(mappedAndroid?.points) || 0)),
           membershipPlan: mappedAndroid?.membershipPlan === 'premium' ? ('premium' as const) : ('free' as const),
-          isOnline: true,
+          isOnline: false,
           showOnlineStatus: true,
           publicActivity: true,
-          role: isOwnerAdmin ? ('admin' as const) : ('author' as const),
+          role: 'author' as const,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
@@ -491,8 +489,13 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
+        const token = await fbUser.getIdTokenResult().catch(() => null);
+        setHqRole(typeof token?.claims.hqRole === 'string' ? token.claims.hqRole : null);
+        setHqPermissions(Array.isArray(token?.claims.hqPermissions) ? token.claims.hqPermissions as string[] : []);
         await ensureUserProfile(fbUser);
       } else {
+        setHqRole(null);
+        setHqPermissions([]);
         setCurrentUser(null);
         setPrivateInfo(null);
       }
@@ -500,6 +503,22 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
     return () => unsub();
   }, [ensureUserProfile]);
+
+  const refreshHqClaims = useCallback(async () => {
+    if (!firebaseUser) {
+      setHqRole(null);
+      setHqPermissions([]);
+      return;
+    }
+    await firebaseUser.getIdToken(true);
+    const token = await firebaseUser.getIdTokenResult();
+    setHqRole(typeof token.claims.hqRole === 'string' ? token.claims.hqRole : null);
+    setHqPermissions(Array.isArray(token.claims.hqPermissions) ? token.claims.hqPermissions as string[] : []);
+  }, [firebaseUser]);
+  const hasHqPermission = useCallback(
+    (permission: string) => hqRole === 'owner' || hqPermissions.includes('*') || hqPermissions.includes(permission),
+    [hqRole, hqPermissions]
+  );
 
   // Listen to currentUser profile in both `db` and `defaultDb`
   useEffect(() => {
@@ -545,10 +564,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             streakDays: 0,
             points: 0,
             membershipPlan: savedPlan,
-            isOnline: true,
+            isOnline: false,
             showOnlineStatus: true,
             publicActivity: true,
-            role: firebaseUser.email === 'pangoworld01@gmail.com' ? 'admin' : 'author',
+            role: 'author',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -603,7 +622,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     if (authLoading) return;
 
-    const isOwnerAdmin = firebaseUser?.email === 'pangoworld01@gmail.com';
+    const isOwnerAdmin = hqRole === 'owner';
     const qBooks = isOwnerAdmin
       ? query(
           collection(db, 'books'),
@@ -723,7 +742,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubPostLikes();
       unsubPostComments();
     };
-  }, [authLoading, firebaseUser, bumpSync]);
+  }, [authLoading, firebaseUser, hqRole, bumpSync]);
 
   // Real-time listeners for `(default)` Firestore database in `red-cover` (Android App DB)
   // Re-runs whenever `firebaseUser` changes so authenticated rules (`request.auth != null`) succeed!
@@ -892,7 +911,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     const uid = firebaseUser.uid;
-    const isOwnerAdmin = firebaseUser.email === 'pangoworld01@gmail.com';
+    const isOwnerAdmin = hqRole === 'owner';
 
     const qMyBooks = query(collection(db, 'books'), where('authorId', '==', uid));
     const unsubMyBooks = onSnapshot(
@@ -1110,6 +1129,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       lastSenderId: String(raw.lastSenderId || ''),
       unreadCountA: Number(raw.unreadCountA ?? 0),
       unreadCountB: Number(raw.unreadCountB ?? 0),
+      hiddenFor: Array.isArray(raw.hiddenFor) ? raw.hiddenFor.map(String) : [],
       createdAt: toIsoString(raw.createdAt),
       updatedAt: toIsoString(raw.updatedAt),
     });
@@ -1117,7 +1137,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubChatsA = onSnapshot(
       qChatsA,
       (snap) => {
-        chatsA = snap.docs.map((d) => mapChatDoc(d.id, d.data()));
+        chatsA = snap.docs.map((d) => mapChatDoc(d.id, d.data())).filter((chat) => !chat.hiddenFor?.includes(uid));
         mergeChats();
         bumpSync();
       },
@@ -1126,40 +1146,12 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubChatsB = onSnapshot(
       qChatsB,
       (snap) => {
-        chatsB = snap.docs.map((d) => mapChatDoc(d.id, d.data()));
+        chatsB = snap.docs.map((d) => mapChatDoc(d.id, d.data())).filter((chat) => !chat.hiddenFor?.includes(uid));
         mergeChats();
         bumpSync();
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'chats')
     );
-
-    const unsubRtdbChats = subscribeRtdbUserChats(uid, (rtdbChats) => {
-      if (!rtdbChats || rtdbChats.length === 0) return;
-      setChats((prev) => {
-        let changed = false;
-        const map = new Map<string, Chat>();
-        prev.forEach((c) => map.set(c.id, c));
-        for (const c of rtdbChats) {
-          const existing = map.get(c.id);
-          const merged = mergeChatRecord(existing, c);
-          if (
-            !existing ||
-            existing.lastMessage !== merged.lastMessage ||
-            existing.unreadCountA !== merged.unreadCountA ||
-            existing.unreadCountB !== merged.unreadCountB ||
-            existing.lastSenderId !== merged.lastSenderId ||
-            existing.updatedAt !== merged.updatedAt
-          ) {
-            map.set(c.id, merged);
-            changed = true;
-          }
-        }
-        if (!changed && map.size === prev.length) return prev;
-        return Array.from(map.values()).sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        );
-      });
-    });
 
     const qNotifs = query(collection(db, 'notifications'), where('recipientId', '==', uid));
     const unsubNotifs = onSnapshot(
@@ -1354,7 +1346,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubFriendRec();
       unsubChatsA();
       unsubChatsB();
-      unsubRtdbChats();
       unsubGroups();
       unsubGroupInvs();
       unsubReadingHost();
@@ -1363,7 +1354,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubNotifs();
       unsubReports();
     };
-  }, [firebaseUser, currentUser?.role, bumpSync]);
+  }, [firebaseUser, hqRole, bumpSync]);
 
   // Combine ONLY real Firebase books from `rtdb`, `defaultDb` (Android DB), and `db` (Web DB)
   // Never allow an empty coverURL/fileURL/authorAvatar in `db` to overwrite a valid cover from `defaultDb` or `rtdb`.
@@ -1406,7 +1397,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Self-heal any book in `db` that was previously mirrored with an empty coverURL when `defaultDb` or `rtdb` has the real coverURL
   useEffect(() => {
     if (!firebaseUser) return;
-    const isOwnerAdmin = firebaseUser.email === 'pangoworld01@gmail.com' || currentUser?.role === 'admin';
+    const isOwnerAdmin = hqRole === 'owner';
     const externalBooks = [...defaultDbBooks, ...rtdbBooks];
     externalBooks.forEach((extBook) => {
       if (!extBook.coverURL || extBook.coverURL.length > 5000) return;
@@ -1418,7 +1409,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }).catch(() => {});
       }
     });
-  }, [firebaseUser, currentUser?.role, defaultDbBooks, rtdbBooks, firestoreBooks]);
+  }, [firebaseUser, hqRole, defaultDbBooks, rtdbBooks, firestoreBooks]);
 
   // Real-time presence monitoring with Firebase RTDB .info/connected & Firestore sync
   useEffect(() => {
@@ -1494,6 +1485,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
 
     return Array.from(map.values())
+      .filter((comment) => comment.moderationHidden !== true)
       .filter((comment) => !comment.id.startsWith('seed_'))
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [
@@ -1507,8 +1499,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const isAdmin = useMemo(() => {
     if (!firebaseUser) return false;
-    return firebaseUser.email === 'pangoworld01@gmail.com' || currentUser?.role === 'admin';
-  }, [firebaseUser, currentUser]);
+    return hqRole === 'owner';
+  }, [firebaseUser, hqRole]);
 
   const sourceStats: FirebaseSourceStats = useMemo(
     () => ({
@@ -1603,7 +1595,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const loginWithGoogle = useCallback(async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-      addToast('Connected to red-cover Firebase Auth!', 'success');
+      addToast('Connected to your Redcover account!', 'success');
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Google Sign-In failed.';
       addToast(msg, 'error');
@@ -1644,7 +1636,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           streakDays: 0,
           points: 0,
           membershipPlan: 'free',
-          isOnline: true,
+          isOnline: false,
           showOnlineStatus: true,
           publicActivity: true,
           role: 'author',
@@ -2467,13 +2459,13 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         addToast(
           bookInput.status === 'published'
-            ? `"${safeTitle}" published live to Firebase!`
-            : `Draft "${safeTitle}" saved to Firebase.`,
+            ? `"${safeTitle}" published successfully!`
+            : `Draft "${safeTitle}" saved successfully.`,
           'success'
         );
         return bookId;
       } catch (error) {
-        addToast('Could not save book to Firebase. Please check your login and permissions.', 'error');
+        addToast('Could not upload your book. Check your account access and file details, then try again.', 'error');
         handleFirestoreError(error, OperationType.WRITE, `books/${bookId}`);
         return bookId;
       }
@@ -2489,7 +2481,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
           await deleteDoc(doc(defaultDb, 'books', bookId));
         } catch {}
-        addToast('Book deleted from Firebase.', 'info');
+        addToast('Book deleted.', 'info');
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, `books/${bookId}`);
       }
@@ -2555,7 +2547,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           streakDays: 0,
           points: 0,
           membershipPlan: 'free',
-          isOnline: true,
+          isOnline: false,
           showOnlineStatus: true,
           publicActivity: true,
           role: 'user',
@@ -2709,7 +2701,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           streakDays: Math.max(0, Math.round(Number(targetUser.streakDays) || 0)),
           points: Math.max(0, Math.round(Number(targetUser.points) || 0)),
           membershipPlan: targetUser.membershipPlan === 'premium' ? 'premium' : 'free',
-          isOnline: Boolean(targetUser.isOnline ?? true),
+          isOnline: Boolean(targetUser.isOnline ?? false),
           showOnlineStatus: Boolean(targetUser.showOnlineStatus ?? true),
           publicActivity: Boolean(targetUser.publicActivity ?? true),
           role: targetUser.role === 'admin' ? 'admin' : targetUser.role === 'author' ? 'author' : 'user',
@@ -3002,7 +2994,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       );
 
       if (existingChat) {
-        startOrGetRtdbChat(currentUser, targetUser).catch(() => {});
         return existingChat.id;
       }
 
@@ -3052,6 +3043,12 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } else {
           // Document exists in Firestore; ensure it is present in local chats state
           const d = snap.data();
+          if (Array.isArray(d.hiddenFor) && d.hiddenFor.includes(firebaseUser.uid)) {
+            await updateDoc(chatRef, {
+              hiddenFor: arrayRemove(firebaseUser.uid),
+              updatedAt: serverTimestamp(),
+            });
+          }
           const loadedChat: Chat = {
             id: snap.id,
             participantA: d.participantA || u1,
@@ -3064,23 +3061,21 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             lastSenderId: d.lastSenderId || firebaseUser.uid,
             unreadCountA: d.unreadCountA || 0,
             unreadCountB: d.unreadCountB || 0,
+            hiddenFor: (Array.isArray(d.hiddenFor) ? d.hiddenFor : []).filter((id: string) => id !== firebaseUser.uid),
             createdAt: d.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
             updatedAt: d.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
           };
           setChats((prev) => (prev.some((c) => c.id === snap.id) ? prev : [loadedChat, ...prev]));
         }
 
-        // Initialize in Realtime Database
-        startOrGetRtdbChat(currentUser, targetUser).catch(() => {});
-
         return chatId;
       } catch (error) {
-        startOrGetRtdbChat(currentUser, targetUser).catch(() => {});
         handleFirestoreError(error, OperationType.CREATE, `chats/${chatId}`);
-        return chatId;
+        addToast('Could not start this chat. Check your Firebase permissions and try again.', 'error');
+        throw error;
       }
     },
-    [firebaseUser, currentUser, chats]
+    [firebaseUser, currentUser, chats, addToast]
   );
 
   const clearChatUnreadCount = useCallback(
@@ -3122,22 +3117,7 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return changed ? updatedChats : previousChats;
       });
 
-      // 3. Clear in RTDB for this chatId and candidate pair IDs
-      try {
-        const { clearRtdbChatUnreadCount } = await import('../services/firebase/rtdbChatService');
-        await clearRtdbChatUnreadCount(chatId, uid);
-        if (partnerUid) {
-          const [u1, u2] = [uid, partnerUid].sort();
-          const canonicalId = `chat_${u1}_${u2}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120);
-          if (canonicalId !== chatId) {
-            await clearRtdbChatUnreadCount(canonicalId, uid);
-          }
-        }
-      } catch (err) {
-        console.warn('RTDB clear unread error:', err);
-      }
-
-      // 4. Clear in Firestore for this chat document and any matched chat documents
+      // Clear unread counts in the authoritative Firestore conversation documents.
       try {
         const isA = targetChat ? targetChat.participantA === uid : true;
         await updateDoc(doc(db, 'chats', chatId), {
@@ -3167,33 +3147,16 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     async (chatId: string) => {
       if (!chatId || !firebaseUser) return;
       const uid = firebaseUser.uid;
-
-      // 1. Remove from local chats state immediately
-      setChats((prev) => prev.filter((c) => c.id !== chatId));
-
-      // 2. Remove from Realtime Database
-      if (rtdb) {
-        try {
-          const { ref: getRtdbRef, set: rtdbSet } = await import('firebase/database');
-          await rtdbSet(getRtdbRef(rtdb, `messages/${chatId}`), null);
-          await rtdbSet(getRtdbRef(rtdb, `user_chats/${uid}/${chatId}`), null);
-          await rtdbSet(getRtdbRef(rtdb, `chats/${chatId}`), null);
-        } catch (err) {
-          console.warn('RTDB delete chat notice:', err);
-        }
-      }
-
-      // 3. Remove from Firestore
       try {
-        await deleteDoc(doc(db, 'chats', chatId)).catch(() => {});
-        const msgSnap = await getDocs(collection(db, 'chats', chatId, 'messages')).catch(() => null);
-        if (msgSnap) {
-          for (const m of msgSnap.docs) {
-            await deleteDoc(doc(db, 'chats', chatId, 'messages', m.id)).catch(() => {});
-          }
-        }
+        await updateDoc(doc(db, 'chats', chatId), {
+          hiddenFor: arrayUnion(uid),
+          updatedAt: serverTimestamp(),
+        });
+        setChats((prev) => prev.filter((chat) => chat.id !== chatId));
       } catch (err) {
-        console.warn('Firestore delete chat notice:', err);
+        handleFirestoreError(err, OperationType.UPDATE, `chats/${chatId}`);
+        addToast('Could not remove this conversation. Check your chat permissions and retry.', 'error');
+        return;
       }
 
       // 4. Remove cached messages
@@ -3282,62 +3245,47 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
           : undefined;
 
-      // 3. Parallel Dual-Delivery: Firestore (persistent authoritative) + RTDB (sub-50ms)
-      const firestoreJob = (async () => {
-        try {
-          const payload: Record<string, any> = {
-            id: msgId,
-            chatId: chat.id,
-            senderId: currentSenderUid,
-            receiverId,
-            text: cleanText,
-            status: 'sent',
-            createdAt: serverTimestamp(),
-          };
-          if (options?.bookAttachment && options.bookAttachment.title) {
-            payload.bookAttachment = {
-              id: String(options.bookAttachment.id || options.bookAttachment.bookId || ''),
-              title: String(options.bookAttachment.title || '').slice(0, 200),
-              author: String(options.bookAttachment.author || options.bookAttachment.authorName || 'Author').slice(0, 120),
-              coverURL: String(options.bookAttachment.coverURL || '').slice(0, 5000),
-              description: String(options.bookAttachment.description || options.bookAttachment.shortDescription || '').slice(0, 300),
-              redCode: String(options.bookAttachment.redCode || '').slice(0, 12),
-            };
-          }
-          if (cleanReplyTo) {
-            payload.replyTo = cleanReplyTo;
-          }
-          if (options?.isForwarded) payload.isForwarded = true;
-          if (options?.redCode) payload.redCode = String(options.redCode).slice(0, 12);
+      const payload: Record<string, any> = {
+        id: msgId,
+        chatId: chat.id,
+        senderId: currentSenderUid,
+        receiverId,
+        text: cleanText || (options?.bookAttachment ? previewText : ''),
+        status: 'sent',
+        createdAt: serverTimestamp(),
+      };
+      if (options?.bookAttachment && options.bookAttachment.title) {
+        payload.bookAttachment = {
+          id: String(options.bookAttachment.id || options.bookAttachment.bookId || ''),
+          title: String(options.bookAttachment.title || '').slice(0, 200),
+          author: String(options.bookAttachment.author || options.bookAttachment.authorName || 'Author').slice(0, 120),
+          coverURL: String(options.bookAttachment.coverURL || '').slice(0, 5000),
+          description: String(options.bookAttachment.description || options.bookAttachment.shortDescription || '').slice(0, 300),
+          redCode: String(options.bookAttachment.redCode || '').slice(0, 12),
+        };
+      }
+      if (cleanReplyTo) payload.replyTo = cleanReplyTo;
+      if (options?.isForwarded) payload.isForwarded = true;
+      if (options?.redCode) payload.redCode = String(options.redCode).slice(0, 12);
 
-          await setDoc(doc(db, 'chats', chat.id, 'messages', msgId), payload);
-
-          const isSenderA = chat.participantA === currentSenderUid;
-          await updateDoc(doc(db, 'chats', chat.id), {
-            lastMessage: previewText.slice(0, 1000),
-            lastSenderId: currentSenderUid,
-            unreadCountA: isSenderA ? 0 : increment(1),
-            unreadCountB: isSenderA ? increment(1) : 0,
-            updatedAt: serverTimestamp(),
-          }).catch(() => {});
-        } catch (err) {
-          console.warn('Firestore message send notice:', err);
-        }
-      })();
-
-      const rtdbJob = (async () => {
-        try {
-          await sendRtdbChatMessage(chat, currentSenderUid, cleanText, {
-            ...options,
-            replyTo: cleanReplyTo,
-            messageId: msgId,
-          });
-        } catch (rtdbErr) {
-          console.warn('RTDB delivery notice:', rtdbErr);
-        }
-      })();
-
-      await Promise.allSettled([firestoreJob, rtdbJob]);
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'chats', chat.id, 'messages', msgId), payload);
+        const isSenderA = chat.participantA === currentSenderUid;
+        batch.update(doc(db, 'chats', chat.id), {
+          lastMessage: previewText.slice(0, 1000),
+          lastSenderId: currentSenderUid,
+          unreadCountA: isSenderA ? 0 : increment(1),
+          unreadCountB: isSenderA ? increment(1) : 0,
+          hiddenFor: arrayRemove(receiverId),
+          updatedAt: serverTimestamp(),
+        });
+        await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, `chats/${chat.id}/messages/${msgId}`);
+        addToast('Message could not be sent. Check your chat rules or connection, then retry.', 'error');
+        throw error;
+      }
 
       // Update local sidebar preview
       setChats((prev) =>
@@ -3362,7 +3310,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const cleanText = newText.trim().slice(0, 2000);
       if (!cleanText) return;
       try {
-        editRtdbChatMessage(chatId, messageId, cleanText).catch(() => {});
         const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
         await updateDoc(msgRef, {
           text: cleanText,
@@ -3381,7 +3328,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     async (chatId: string, messageId: string) => {
       if (!firebaseUser) return;
       try {
-        unsendRtdbChatMessage(chatId, messageId).catch(() => {});
         const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
         const snap = await getDoc(msgRef);
         if (snap.exists() && snap.data().senderId === firebaseUser.uid) {
@@ -3403,14 +3349,13 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     async (chatId: string, messageId: string) => {
       if (!firebaseUser) return;
       try {
-        deleteRtdbMessageForMe(chatId, messageId, firebaseUser.uid).catch(() => {});
         const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
         const snap = await getDoc(msgRef);
         if (snap.exists()) {
-          const deletedFor: string[] = snap.data().deletedFor || [];
+          const deletedFor: string[] = snap.data().deletedForUsers || [];
           if (!deletedFor.includes(firebaseUser.uid)) {
             await updateDoc(msgRef, {
-              deletedFor: [...deletedFor, firebaseUser.uid],
+              deletedForUsers: [...deletedFor, firebaseUser.uid],
             });
             addToast('Message removed for you.', 'info');
           }
@@ -3426,7 +3371,6 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     async (chatId: string, messageId: string, emoji: string) => {
       if (!firebaseUser) return;
       try {
-        reactToRtdbChatMessage(chatId, messageId, firebaseUser.uid, emoji).catch(() => {});
         const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
         const snap = await getDoc(msgRef);
         if (snap.exists()) {
@@ -4406,6 +4350,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     privateInfo,
     authLoading,
     isAdmin,
+    hqRole,
+    hqPermissions,
+    refreshHqClaims,
+    hasHqPermission,
     books,
     users,
     reviews,

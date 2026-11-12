@@ -1,9 +1,1471 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Sabhi authenticated users ko read aur write allow karein
+    // Pillar 4.1: Global Safety Net (Default-Deny Catch-All)
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
+    }
+
+    // Phase 3: Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function ownerClaim() {
+      return isSignedIn() && request.auth.token.hqRole == 'owner';
+    }
+
+    function maintenanceDisabled() {
+      return !exists(/databases/$(database)/documents/hqConfig/platform)
+        || !('maintenanceMode' in get(/databases/$(database)/documents/hqConfig/platform).data)
+        || get(/databases/$(database)/documents/hqConfig/platform).data.maintenanceMode != true;
+    }
+
+    function bookPublishingEnabled() {
+      return !exists(/databases/$(database)/documents/hqConfig/platform)
+        || !('allowBookPublishing' in get(/databases/$(database)/documents/hqConfig/platform).data)
+        || get(/databases/$(database)/documents/hqConfig/platform).data.allowBookPublishing == true;
+    }
+
+    function communityEnabled() {
+      return !exists(/databases/$(database)/documents/hqConfig/platform)
+        || !('communityEnabled' in get(/databases/$(database)/documents/hqConfig/platform).data)
+        || get(/databases/$(database)/documents/hqConfig/platform).data.communityEnabled == true;
+    }
+
+    function hasAccountRestriction(permission) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/hqAccountControls/$(request.auth.uid))
+        && get(/databases/$(database)/documents/hqAccountControls/$(request.auth.uid)).data.restrictions is list
+        && get(/databases/$(database)/documents/hqAccountControls/$(request.auth.uid)).data.restrictions.hasAny([permission]);
+    }
+
+    function isVerified() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && (ownerClaim() || maintenanceDisabled())
+        && (!exists(/databases/$(database)/documents/hqAccountControls/$(request.auth.uid))
+          || get(/databases/$(database)/documents/hqAccountControls/$(request.auth.uid)).data.suspended != true);
+    }
+
+    function isOwner() {
+      return isVerified() && ownerClaim();
+    }
+
+    function isTokenAdmin() {
+      return isOwner();
+    }
+
+    function isAdmin() {
+      return isOwner();
+    }
+
+    function hasHqPermission(permission) {
+      return isOwner() || (isVerified()
+        && request.auth.token.hqPermissions is list
+        && request.auth.token.hqPermissions.hasAny([permission]));
+    }
+
+
+    function isValidReadingSession(data) {
+      return data.keys().hasAll(['id','bookId','bookTitle','bookCover','bookFormat','hostId','hostName','hostAvatar','participantId','participantName','participantAvatar','status','currentChapter','currentPage','scrollPosition','activeControllerId','activeControllerName','controllerLeaseUntil','createdAt','updatedAt'])
+        && data.keys().hasOnly(['id','bookId','bookTitle','bookCover','bookFormat','hostId','hostName','hostAvatar','participantId','participantName','participantAvatar','status','currentChapter','currentPage','scrollPosition','activeControllerId','activeControllerName','controllerLeaseUntil','createdAt','updatedAt'])
+        && isValidId(data.id) && data.bookId is string && data.bookId.size() <= 128
+        && data.bookTitle is string && data.bookTitle.size() <= 200 && data.bookCover is string && data.bookCover.size() <= 5000
+        && data.bookFormat in ['story','pdf'] && isValidId(data.hostId) && data.hostName is string && data.hostName.size() <= 120
+        && data.hostAvatar is string && data.hostAvatar.size() <= 5000 && isValidId(data.participantId)
+        && data.participantName is string && data.participantName.size() <= 120 && data.participantAvatar is string && data.participantAvatar.size() <= 5000
+        && data.status in ['waiting','active','ended'] && data.currentChapter is int && data.currentChapter >= 0
+        && data.currentPage is int && data.currentPage >= 0 && data.scrollPosition is number && data.scrollPosition >= 0
+        && isValidId(data.activeControllerId) && data.activeControllerName is string && data.activeControllerName.size() <= 120
+        && data.controllerLeaseUntil is int && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+    function isValidReadingInvitation(data) {
+      return data.keys().hasAll(['id','bookId','bookTitle','bookCover','inviterId','inviterName','inviterAvatar','inviteeId','inviteeName','personalMessage','sessionId','status','createdAt','updatedAt'])
+        && data.keys().hasOnly(['id','bookId','bookTitle','bookCover','inviterId','inviterName','inviterAvatar','inviteeId','inviteeName','personalMessage','sessionId','status','createdAt','updatedAt'])
+        && isValidId(data.id) && data.bookId is string && data.bookId.size() <= 128
+        && data.bookTitle is string && data.bookTitle.size() <= 200 && data.bookCover is string && data.bookCover.size() <= 5000
+        && isValidId(data.inviterId) && data.inviterName is string && data.inviterName.size() <= 120
+        && data.inviterAvatar is string && data.inviterAvatar.size() <= 5000 && isValidId(data.inviteeId)
+        && data.inviteeName is string && data.inviteeName.size() <= 120 && data.personalMessage is string && data.personalMessage.size() <= 300
+        && isValidId(data.sessionId) && data.status in ['pending','accepted','declined']
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+    function isValidReadingRemoteRequest(data) {
+      return data.keys().hasAll(['id','sessionId','requesterId','requesterName','requesterAvatar','status','createdAt','expiresAt'])
+        && data.keys().hasOnly(['id','sessionId','requesterId','requesterName','requesterAvatar','status','createdAt','expiresAt'])
+        && isValidId(data.id) && isValidId(data.sessionId) && isValidId(data.requesterId)
+        && data.requesterName is string && data.requesterName.size() <= 120
+        && data.requesterAvatar is string && data.requesterAvatar.size() <= 5000
+        && data.status in ['pending','approved','rejected'] && data.createdAt is timestamp
+        && data.expiresAt is string && data.expiresAt.size() <= 64;
+    }
+
+    // Validation Blueprints (Pillar 2)
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+        'uid', 'username', 'displayName', 'photoURL', 'coverURL', 'bio',
+        'followersCount', 'followingCount', 'booksCount', 'streakDays', 'points',
+        'membershipPlan', 'isOnline', 'showOnlineStatus', 'publicActivity',
+        'role', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'uid', 'username', 'displayName', 'photoURL', 'coverURL', 'bio',
+        'followersCount', 'followingCount', 'booksCount', 'streakDays', 'points',
+        'membershipPlan', 'isOnline', 'showOnlineStatus', 'publicActivity',
+        'role', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.uid)
+      && data.username is string && data.username.size() >= 2 && data.username.size() <= 60
+      && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+      && data.photoURL is string && data.photoURL.size() <= 5000
+      && data.coverURL is string && data.coverURL.size() <= 5000
+      && data.bio is string && data.bio.size() <= 1000
+      && data.followersCount is int && data.followersCount >= 0
+      && data.followingCount is int && data.followingCount >= 0
+      && data.booksCount is int && data.booksCount >= 0
+      && data.streakDays is int && data.streakDays >= 0
+      && data.points is int && data.points >= 0
+      && data.membershipPlan is string && data.membershipPlan in ['free', 'premium']
+      && data.isOnline is bool
+      && data.showOnlineStatus is bool
+      && data.publicActivity is bool
+      && data.role is string && data.role in ['user', 'author', 'admin']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll([
+        'uid', 'email', 'readingReminders', 'notificationSettings', 'theme', 'subscriptionExpiry', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'uid', 'email', 'readingReminders', 'notificationSettings', 'theme', 'subscriptionExpiry', 'updatedAt'
+      ])
+      && isValidId(data.uid)
+      && data.email is string && data.email.size() <= 254
+      && data.readingReminders is bool
+      && data.notificationSettings is string && data.notificationSettings in ['all', 'important', 'none']
+      && data.theme is string && data.theme in ['light', 'dark', 'sepia']
+      && data.subscriptionExpiry is string && data.subscriptionExpiry.size() <= 64
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidBook(data) {
+      return data.keys().hasAll([
+        'id', 'title', 'description', 'shortDescription', 'authorId', 'authorName',
+        'authorUsername', 'authorAvatar', 'coverURL', 'fileURL', 'format',
+        'category', 'language', 'rating', 'reviewsCount', 'views', 'likes',
+        'saves', 'chaptersCount', 'featured', 'status', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'title', 'description', 'shortDescription', 'authorId', 'authorName',
+        'authorUsername', 'authorAvatar', 'coverURL', 'fileURL', 'format',
+        'availableModes',
+        'category', 'language', 'rating', 'reviewsCount', 'views', 'likes',
+        'saves', 'chaptersCount', 'featured', 'status', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+      && data.description is string && data.description.size() <= 5000
+      && data.shortDescription is string && data.shortDescription.size() <= 400
+      && isValidId(data.authorId)
+      && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 120
+      && data.authorUsername is string && data.authorUsername.size() <= 80
+      && data.authorAvatar is string && data.authorAvatar.size() <= 5000
+      && data.coverURL is string && data.coverURL.size() <= 5000
+      && data.fileURL is string && data.fileURL.size() <= 5000
+      && data.format is string && data.format in ['story', 'pdf']
+      && (!('availableModes' in data) || (
+        data.availableModes is list
+        && data.availableModes.size() <= 3
+        && data.availableModes.hasOnly(['text', 'pdf', 'audio'])
+      ))
+      && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+      && data.language is string && data.language.size() >= 1 && data.language.size() <= 60
+      && (data.rating is int || data.rating is float) && data.rating >= 0 && data.rating <= 5
+      && data.reviewsCount is int && data.reviewsCount >= 0
+      && data.views is int && data.views >= 0
+      && data.likes is int && data.likes >= 0
+      && data.saves is int && data.saves >= 0
+      && data.chaptersCount is int && data.chaptersCount >= 0
+      && data.featured is bool
+      && data.status is string && data.status in ['draft', 'published', 'pending', 'removed']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidChapter(data) {
+      return data.keys().hasAll([
+        'id', 'bookId', 'authorId', 'bookStatus', 'chapterNumber', 'title', 'content', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'bookId', 'authorId', 'bookStatus', 'chapterNumber', 'title', 'content', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.bookId)
+      && isValidId(data.authorId)
+      && data.bookStatus is string && data.bookStatus in ['draft', 'published', 'pending', 'removed']
+      && data.chapterNumber is int && data.chapterNumber >= 1 && data.chapterNumber <= 10000
+      && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+      && data.content is string && data.content.size() <= 100000
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll([
+        'id', 'bookId', 'bookTitle', 'userId', 'userName', 'userAvatar',
+        'rating', 'text', 'visibility', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'bookId', 'bookTitle', 'userId', 'userName', 'userAvatar',
+        'rating', 'text', 'visibility', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.bookId)
+      && data.bookTitle is string && data.bookTitle.size() >= 1 && data.bookTitle.size() <= 200
+      && isValidId(data.userId)
+      && data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100
+      && data.userAvatar is string && data.userAvatar.size() <= 5000
+      && (data.rating is int || data.rating is float) && data.rating >= 1 && data.rating <= 5
+      && data.text is string && data.text.size() >= 1 && data.text.size() <= 2000
+      && data.visibility is string && data.visibility in ['public', 'hidden']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidReadingProgress(data) {
+      return data.keys().hasAll([
+        'id', 'userId', 'bookId', 'bookTitle', 'bookCover', 'bookAuthor',
+        'currentChapter', 'totalChapters', 'percentage', 'bookmarkNote',
+        'isBookmarked', 'isPublic', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'userId', 'bookId', 'bookTitle', 'bookCover', 'bookAuthor',
+        'currentChapter', 'totalChapters', 'percentage', 'bookmarkNote',
+        'isBookmarked', 'isPublic', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.userId)
+      && isValidId(data.bookId)
+      && data.bookTitle is string && data.bookTitle.size() >= 1 && data.bookTitle.size() <= 200
+      && data.bookCover is string && data.bookCover.size() <= 5000
+      && data.bookAuthor is string && data.bookAuthor.size() <= 120
+      && data.currentChapter is int && data.currentChapter >= 1
+      && data.totalChapters is int && data.totalChapters >= 1
+      && data.percentage is int && data.percentage >= 0 && data.percentage <= 100
+      && data.bookmarkNote is string && data.bookmarkNote.size() <= 5000
+      && data.isBookmarked is bool
+      && data.isPublic is bool
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidSavedBook(data) {
+      return data.keys().hasAll(['id', 'userId', 'bookId', 'createdAt'])
+      && data.keys().hasOnly(['id', 'userId', 'bookId', 'createdAt'])
+      && isValidId(data.id)
+      && isValidId(data.userId)
+      && isValidId(data.bookId)
+      && data.createdAt is timestamp;
+    }
+
+    function isValidBookLike(data) {
+      return data.keys().hasAll(['id', 'userId', 'bookId', 'targetAuthorId', 'createdAt'])
+      && data.keys().hasOnly(['id', 'userId', 'bookId', 'targetAuthorId', 'createdAt'])
+      && isValidId(data.id)
+      && isValidId(data.userId)
+      && isValidId(data.bookId)
+      && isValidId(data.targetAuthorId)
+      && data.createdAt is timestamp;
+    }
+
+    function isValidFollow(data) {
+      return data.keys().hasAll(['id', 'followerId', 'followingId', 'followerName', 'followingName', 'createdAt'])
+      && data.keys().hasOnly(['id', 'followerId', 'followingId', 'followerName', 'followingName', 'createdAt'])
+      && isValidId(data.id)
+      && isValidId(data.followerId)
+      && isValidId(data.followingId)
+      && data.followerId != data.followingId
+      && data.followerName is string && data.followerName.size() <= 100
+      && data.followingName is string && data.followingName.size() <= 100
+      && data.createdAt is timestamp;
+    }
+
+    function isValidFriendship(data) {
+      return data.keys().hasAll([
+        'id', 'requesterId', 'receiverId', 'requesterName', 'receiverName',
+        'requesterAvatar', 'receiverAvatar', 'status', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'requesterId', 'receiverId', 'requesterName', 'receiverName',
+        'requesterAvatar', 'receiverAvatar', 'status', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.requesterId)
+      && isValidId(data.receiverId)
+      && data.requesterId != data.receiverId
+      && data.requesterName is string && data.requesterName.size() <= 100
+      && data.receiverName is string && data.receiverName.size() <= 100
+      && data.requesterAvatar is string && data.requesterAvatar.size() <= 5000
+      && data.receiverAvatar is string && data.receiverAvatar.size() <= 5000
+      && data.status is string && data.status in ['pending', 'accepted', 'rejected', 'blocked']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll([
+        'id', 'participantA', 'participantB', 'participantAName', 'participantBName',
+        'participantAAvatar', 'participantBAvatar', 'lastMessage', 'lastSenderId',
+        'unreadCountA', 'unreadCountB', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'participantA', 'participantB', 'participantAName', 'participantBName',
+        'participantAAvatar', 'participantBAvatar', 'lastMessage', 'lastSenderId',
+        'unreadCountA', 'unreadCountB', 'createdAt', 'updatedAt', 'nicknames', 'hiddenFor'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.participantA)
+      && isValidId(data.participantB)
+      && data.participantA != data.participantB
+      && data.participantAName is string && data.participantAName.size() <= 100
+      && data.participantBName is string && data.participantBName.size() <= 100
+      && data.participantAAvatar is string && data.participantAAvatar.size() <= 5000
+      && data.participantBAvatar is string && data.participantBAvatar.size() <= 5000
+      && data.lastMessage is string && data.lastMessage.size() <= 1000
+      && isValidId(data.lastSenderId)
+      && data.unreadCountA is int && data.unreadCountA >= 0
+      && data.unreadCountB is int && data.unreadCountB >= 0
+      && (!('nicknames' in data) || data.nicknames is map)
+      && (!('hiddenFor' in data) || data.hiddenFor is list)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data) {
+      return data.keys().hasAll(['id', 'chatId', 'senderId', 'receiverId', 'text', 'status', 'createdAt'])
+      && data.keys().hasOnly([
+        'id', 'chatId', 'senderId', 'receiverId', 'text', 'status', 'createdAt',
+        'replyTo', 'reactions', 'isEdited', 'editedAt', 'isDeletedForEveryone',
+        'isDeleted', 'deletedAt', 'deletedForUsers', 'isForwarded', 'forwardedFrom',
+        'attachmentType', 'bookAttachment', 'redCode'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.chatId)
+      && isValidId(data.senderId)
+      && isValidId(data.receiverId)
+      && data.text is string && data.text.size() >= 1 && data.text.size() <= 2000
+      && data.status is string && data.status in ['sent', 'delivered', 'read']
+      && (!('replyTo' in data) || data.replyTo is map)
+      && (!('reactions' in data) || data.reactions is map)
+      && (!('isEdited' in data) || data.isEdited is bool)
+      && (!('editedAt' in data) || data.editedAt is timestamp)
+      && (!('isDeletedForEveryone' in data) || data.isDeletedForEveryone is bool)
+      && (!('isDeleted' in data) || data.isDeleted is bool)
+      && (!('deletedAt' in data) || data.deletedAt is timestamp)
+      && (!('deletedForUsers' in data) || data.deletedForUsers is list)
+      && (!('isForwarded' in data) || data.isForwarded is bool)
+      && (!('forwardedFrom' in data) || data.forwardedFrom is string)
+      && (!('attachmentType' in data) || data.attachmentType in ['none', 'image', 'file', 'book', 'redcode'])
+      && (!('bookAttachment' in data) || data.bookAttachment is map)
+      && (!('redCode' in data) || (data.redCode is string && data.redCode.size() <= 12))
+      && data.createdAt is timestamp;
+    }
+
+    function isGroupMember(groupId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/groups/$(groupId))
+        && get(/databases/$(database)/documents/groups/$(groupId)).data.members is list
+        && get(/databases/$(database)/documents/groups/$(groupId)).data.members.hasAny([request.auth.uid]);
+    }
+
+    function isGroupAdmin(groupId) {
+      return isGroupMember(groupId)
+        && get(/databases/$(database)/documents/groups/$(groupId)).data.admins is list
+        && get(/databases/$(database)/documents/groups/$(groupId)).data.admins.hasAny([request.auth.uid]);
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll([
+        'id', 'name', 'description', 'avatarURL', 'creatorId', 'creatorName',
+        'admins', 'members', 'pendingInvitees', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'name', 'description', 'avatarURL', 'creatorId', 'creatorName',
+        'admins', 'members', 'pendingInvitees', 'lastMessage', 'lastSenderId',
+        'lastMessageAt', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+      && data.description is string && data.description.size() <= 500
+      && data.avatarURL is string && data.avatarURL.size() <= 5000
+      && isValidId(data.creatorId)
+      && data.creatorName is string && data.creatorName.size() <= 100
+      && data.admins is list && data.admins.size() >= 1 && data.admins.size() <= 100
+      && data.members is list && data.members.size() >= 1 && data.members.size() <= 500
+      && data.pendingInvitees is list && data.pendingInvitees.size() <= 500
+      && (!('lastMessage' in data) || (data.lastMessage is string && data.lastMessage.size() <= 200))
+      && (!('lastSenderId' in data) || isValidId(data.lastSenderId))
+      && (!('lastMessageAt' in data) || data.lastMessageAt is string || data.lastMessageAt is timestamp)
+      && (data.createdAt is timestamp || data.createdAt is string)
+      && (data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    function isValidGroupInvitation(data) {
+      return data.keys().hasAll([
+        'id', 'groupId', 'groupName', 'groupAvatar', 'inviterId', 'inviterName',
+        'inviteeId', 'inviteeName', 'status', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'groupId', 'groupName', 'groupAvatar', 'inviterId', 'inviterName',
+        'inviteeId', 'inviteeName', 'status', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.groupId)
+      && data.groupName is string && data.groupName.size() <= 100
+      && data.groupAvatar is string && data.groupAvatar.size() <= 5000
+      && isValidId(data.inviterId)
+      && data.inviterName is string && data.inviterName.size() <= 100
+      && isValidId(data.inviteeId)
+      && data.inviteeName is string && data.inviteeName.size() <= 100
+      && data.status is string && data.status in ['pending', 'accepted', 'declined']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupMessage(data) {
+      return data.keys().hasAll([
+        'id', 'groupId', 'senderId', 'senderName', 'senderAvatar', 'text', 'createdAt'
+      ]) && data.keys().hasOnly([
+        'id', 'groupId', 'senderId', 'senderName', 'senderAvatar', 'text', 'createdAt',
+        'replyTo', 'reactions', 'isEdited', 'editedAt', 'isDeletedForEveryone',
+        'deletedForUsers', 'isForwarded', 'forwardedFrom', 'attachmentType', 'bookAttachment'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.groupId)
+      && isValidId(data.senderId)
+      && data.senderName is string && data.senderName.size() <= 100
+      && data.senderAvatar is string && data.senderAvatar.size() <= 5000
+      && data.text is string && data.text.size() <= 3000
+      && data.createdAt is timestamp
+      && (!('replyTo' in data) || data.replyTo is map)
+      && (!('reactions' in data) || data.reactions is map)
+      && (!('isEdited' in data) || data.isEdited is bool)
+      && (!('editedAt' in data) || data.editedAt is timestamp)
+      && (!('isDeletedForEveryone' in data) || data.isDeletedForEveryone is bool)
+      && (!('deletedForUsers' in data) || data.deletedForUsers is list)
+      && (!('isForwarded' in data) || data.isForwarded is bool)
+      && (!('forwardedFrom' in data) || data.forwardedFrom is string)
+      && (!('attachmentType' in data) || data.attachmentType in ['none', 'image', 'file', 'book', 'redcode'])
+      && (!('bookAttachment' in data) || data.bookAttachment is map);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+        'id', 'recipientId', 'actorId', 'actorName', 'category',
+        'title', 'body', 'link', 'read', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'recipientId', 'actorId', 'actorName', 'category',
+        'actorAvatar', 'type', 'targetId', 'actionState', 'title', 'body', 'link', 'read', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.recipientId)
+      && isValidId(data.actorId)
+      && data.actorName is string && data.actorName.size() <= 100
+      && data.category is string && data.category in ['social', 'messages', 'books', 'membership', 'reading', 'groups', 'system']
+      && (!('actorAvatar' in data) || (data.actorAvatar is string && data.actorAvatar.size() <= 5000))
+      && (!('type' in data) || data.type in [
+        'book_like', 'book_comment', 'comment_reply', 'friend_request', 'friend_accept',
+        'follow', 'reading_invite', 'group_invite', 'friend_suggestion', 'system_announcement'
+      ])
+      && (!('targetId' in data) || (data.targetId is string && data.targetId.size() <= 128))
+      && (!('actionState' in data) || data.actionState in ['pending', 'accepted', 'declined', 'joined'])
+      && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+      && data.body is string && data.body.size() >= 1 && data.body.size() <= 600
+      && data.link is string && data.link.size() <= 300
+      && data.read is bool
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll([
+        'id', 'reporterId', 'targetType', 'targetId', 'targetTitle',
+        'reason', 'status', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'reporterId', 'targetType', 'targetId', 'targetTitle',
+        'reason', 'status', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.reporterId)
+      && data.targetType is string && data.targetType in ['book', 'user']
+      && isValidId(data.targetId)
+      && data.targetTitle is string && data.targetTitle.size() >= 1 && data.targetTitle.size() <= 200
+      && data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 1000
+      && data.status is string && data.status in ['open', 'resolved', 'dismissed']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['uid', 'grantedBy', 'createdAt'])
+      && data.keys().hasOnly(['uid', 'grantedBy', 'createdAt'])
+      && isValidId(data.uid)
+      && isValidId(data.grantedBy)
+      && data.createdAt is timestamp;
+    }
+
+    function isValidSocialPost(data) {
+      return data.keys().hasAll([
+        'id', 'authorId', 'authorName', 'authorUsername', 'authorAvatar',
+        'postType', 'text', 'bookId', 'bookTitle', 'bookAuthor', 'bookCover',
+        'bookCategory', 'rating', 'progressPercentage', 'chapterNumber',
+        'likesCount', 'commentsCount', 'visibility', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'authorId', 'authorName', 'authorUsername', 'authorAvatar',
+        'postType', 'text', 'bookId', 'bookTitle', 'bookAuthor', 'bookCover',
+        'bookCategory', 'rating', 'progressPercentage', 'chapterNumber',
+        'likesCount', 'commentsCount', 'visibility', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.authorId)
+      && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 100
+      && data.authorUsername is string && data.authorUsername.size() >= 1 && data.authorUsername.size() <= 80
+      && data.authorAvatar is string && data.authorAvatar.size() <= 5000
+      && data.postType is string && data.postType in [
+        'discussion', 'book_recommendation', 'reading_update',
+        'book_review', 'story_publication', 'reading_achievement'
+      ]
+      && data.text is string && data.text.size() >= 1 && data.text.size() <= 3000
+      && data.bookId is string && data.bookId.size() <= 128
+      && data.bookTitle is string && data.bookTitle.size() <= 200
+      && data.bookAuthor is string && data.bookAuthor.size() <= 120
+      && data.bookCover is string && data.bookCover.size() <= 5000
+      && data.bookCategory is string && data.bookCategory.size() <= 80
+      && (data.rating is int || data.rating is float) && data.rating >= 0 && data.rating <= 5
+      && data.progressPercentage is int && data.progressPercentage >= 0 && data.progressPercentage <= 100
+      && data.chapterNumber is int && data.chapterNumber >= 0 && data.chapterNumber <= 10000
+      && data.likesCount is int && data.likesCount >= 0
+      && data.commentsCount is int && data.commentsCount >= 0
+      && data.visibility is string && data.visibility in ['public', 'hidden']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidPostLike(data) {
+      return data.keys().hasAll(['id', 'postId', 'userId', 'createdAt'])
+      && data.keys().hasOnly(['id', 'postId', 'userId', 'createdAt'])
+      && isValidId(data.id)
+      && isValidId(data.postId)
+      && isValidId(data.userId)
+      && data.createdAt is timestamp;
+    }
+
+    function isValidPostComment(data) {
+      return data.keys().hasAll([
+        'id', 'postId', 'userId', 'userName', 'userUsername', 'userAvatar',
+        'text', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'postId', 'userId', 'userName', 'userUsername', 'userAvatar',
+        'text', 'createdAt', 'updatedAt', 'moderationHidden'
+      ])
+      && isValidId(data.id)
+      && isValidId(data.postId)
+      && isValidId(data.userId)
+      && data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100
+      && data.userUsername is string && data.userUsername.size() >= 1 && data.userUsername.size() <= 80
+      && data.userAvatar is string && data.userAvatar.size() <= 5000
+      && data.text is string && data.text.size() >= 1 && data.text.size() <= 1000
+      && (!('moderationHidden' in data) || data.moderationHidden is bool)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    // 1. Public User Profiles (PII Isolated)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (resource == null || existing().role in ['user', 'author', 'admin'] || existing().uid is string || isTokenAdmin());
+      allow list: if resource.data.role in ['user', 'author', 'admin'] || resource.data.uid is string || isTokenAdmin();
+      allow create: if isVerified()
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (request.auth.uid == userId && incoming().role in ['user', 'author']) ||
+          isAdmin()
+        );
+      allow update: if (
+        isVerified() && isValidId(userId) && isValidUserProfile(incoming()) && (
+          isAdmin() ||
+          (
+            request.auth.uid == userId
+            && incoming().uid == existing().uid
+            && incoming().role == existing().role
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'username', 'displayName', 'photoURL', 'coverURL', 'bio',
+              'isOnline', 'showOnlineStatus', 'publicActivity', 'streakDays',
+              'points', 'booksCount', 'followersCount', 'followingCount',
+              'membershipPlan', 'updatedAt'
+            ])
+          ) ||
+          (
+            incoming().uid == existing().uid
+            && incoming().role == existing().role
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['followersCount', 'updatedAt'])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(userId) && isAdmin();
+
+      // 2. Private User PII & Settings Subcollection (Pillar 6)
+      match /private/{docId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(docId) && (request.auth.uid == userId || isAdmin());
+        allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidUserPrivateInfo(incoming())
+          && incoming().uid == userId
+          && incoming().updatedAt == request.time
+          && (request.auth.uid == userId || isAdmin())
+          && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if (
+          isVerified() && isValidId(userId) && isValidId(docId) && isValidUserPrivateInfo(incoming()) && (
+            isAdmin() ||
+            (
+              request.auth.uid == userId
+              && incoming().uid == existing().uid
+              && incoming().updatedAt == request.time
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'email', 'readingReminders', 'notificationSettings', 'theme', 'subscriptionExpiry', 'updatedAt'
+              ])
+            )
+          )
+        );
+        allow delete: if isVerified() && isValidId(userId) && isValidId(docId) && isAdmin();
+      }
+    }
+
+    // 3. Books Catalog
+    match /books/{bookId} {
+      allow get: if isValidId(bookId) && (
+        resource == null ||
+        existing().status == 'published' ||
+        !('status' in existing()) ||
+        (isSignedIn() && (existing().authorId == request.auth.uid || isAdmin()))
+      );
+      allow list: if resource.data.status == 'published' || !('status' in resource.data) || (
+        isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin())
+      );
+      allow create: if isVerified()
+        && isValidId(bookId)
+        && isValidBook(incoming())
+        && (ownerClaim() || !hasAccountRestriction('publish'))
+        && (ownerClaim() || incoming().status != 'published' || bookPublishingEnabled())
+        && incoming().id == bookId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (incoming().authorId == request.auth.uid && exists(/databases/$(database)/documents/users/$(request.auth.uid))) ||
+          isAdmin()
+        );
+      allow update: if (
+        isVerified() && isValidId(bookId) && isValidBook(incoming()) && (
+          isAdmin() ||
+          (
+            (ownerClaim() || !hasAccountRestriction('publish'))
+            && (incoming().status != 'published' || bookPublishingEnabled())
+            && existing().status != 'removed'
+            && existing().authorId == request.auth.uid
+            && incoming().id == existing().id
+            && incoming().authorId == existing().authorId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'shortDescription', 'authorName',
+              'authorUsername', 'authorAvatar', 'coverURL', 'fileURL',
+              'format', 'availableModes', 'category', 'language', 'chaptersCount', 'status', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().status == 'published'
+            && incoming().id == existing().id
+            && incoming().authorId == existing().authorId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'views', 'likes', 'saves', 'rating', 'reviewsCount', 'updatedAt'
+            ])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(bookId) && (existing().authorId == request.auth.uid || isAdmin());
+
+      // 4. Chapters Subcollection (Pillar 1 Master Gate)
+      match /chapters/{chapterId} {
+        allow get: if isValidId(bookId) && isValidId(chapterId) && (
+          resource == null ||
+          get(/databases/$(database)/documents/books/$(bookId)).data.status == 'published' ||
+          (isSignedIn() && (get(/databases/$(database)/documents/books/$(bookId)).data.authorId == request.auth.uid || isAdmin()))
+        );
+        allow list: if resource.data.bookStatus == 'published' || (
+          isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin())
+        );
+        allow create: if isVerified()
+          && isValidId(bookId)
+          && isValidId(chapterId)
+          && isValidChapter(incoming())
+          && incoming().id == chapterId
+          && incoming().bookId == bookId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/books/$(bookId))
+          && (
+            (incoming().authorId == request.auth.uid && get(/databases/$(database)/documents/books/$(bookId)).data.authorId == request.auth.uid) ||
+            isAdmin()
+          );
+        allow update: if (
+          isVerified() && isValidId(bookId) && isValidId(chapterId) && isValidChapter(incoming()) && (
+            isAdmin() ||
+            (
+              get(/databases/$(database)/documents/books/$(bookId)).data.authorId == request.auth.uid
+              && incoming().id == existing().id
+              && incoming().bookId == existing().bookId
+              && incoming().authorId == existing().authorId
+              && incoming().createdAt == existing().createdAt
+              && incoming().updatedAt == request.time
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'chapterNumber', 'title', 'content', 'bookStatus', 'updatedAt'
+              ])
+            )
+          )
+        );
+        allow delete: if isVerified() && isValidId(bookId) && isValidId(chapterId) && (
+          get(/databases/$(database)/documents/books/$(bookId)).data.authorId == request.auth.uid || isAdmin()
+        );
+      }
+    }
+
+    // 5. Reviews
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (
+        resource == null ||
+        existing().visibility == 'public' ||
+        (isSignedIn() && (existing().userId == request.auth.uid || isAdmin()))
+      );
+      allow list: if resource.data.visibility == 'public' || (
+        isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin())
+      );
+      allow create: if isVerified()
+        && isValidId(reviewId)
+        && isValidReview(incoming())
+        && incoming().id == reviewId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (incoming().userId == request.auth.uid && exists(/databases/$(database)/documents/books/$(incoming().bookId))) ||
+          isAdmin()
+        );
+      allow update: if (
+        isVerified() && isValidId(reviewId) && isValidReview(incoming()) && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid
+            && incoming().id == existing().id
+            && incoming().bookId == existing().bookId
+            && incoming().userId == existing().userId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'rating', 'text', 'userName', 'userAvatar', 'updatedAt'
+            ])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(reviewId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // 6. Reading Progress & Bookmarks
+    match /readingProgress/{progressId} {
+      allow get: if isValidId(progressId) && (
+        resource == null ||
+        existing().isPublic == true ||
+        (isSignedIn() && (existing().userId == request.auth.uid || isAdmin()))
+      );
+      allow list: if resource.data.isPublic == true || (
+        isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin())
+      );
+      allow create: if isVerified()
+        && isValidId(progressId)
+        && isValidReadingProgress(incoming())
+        && incoming().id == progressId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (incoming().userId == request.auth.uid && exists(/databases/$(database)/documents/books/$(incoming().bookId))) ||
+          isAdmin()
+        );
+      allow update: if (
+        isVerified() && isValidId(progressId) && isValidReadingProgress(incoming()) && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid
+            && incoming().id == existing().id
+            && incoming().userId == existing().userId
+            && incoming().bookId == existing().bookId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'bookTitle', 'bookCover', 'bookAuthor', 'currentChapter',
+              'totalChapters', 'percentage', 'bookmarkNote', 'isBookmarked',
+              'isPublic', 'updatedAt'
+            ])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(progressId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // 7. Saved Books
+    match /saves/{saveId} {
+      allow get: if isSignedIn() && isValidId(saveId) && (resource == null || existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isVerified()
+        && isValidId(saveId)
+        && isValidSavedBook(incoming())
+        && incoming().id == saveId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/books/$(incoming().bookId));
+      allow update: if false;
+      allow delete: if isVerified() && isValidId(saveId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // 8. Book Likes
+    match /likes/{likeId} {
+      allow get: if isSignedIn() && isValidId(likeId) && (
+        resource == null ||
+        existing().userId == request.auth.uid ||
+        existing().targetAuthorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.targetAuthorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(likeId)
+        && isValidBookLike(incoming())
+        && incoming().id == likeId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/books/$(incoming().bookId));
+      allow update: if false;
+      allow delete: if isVerified() && isValidId(likeId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // 9. Follows
+    match /follows/{followId} {
+      allow get: if isSignedIn() && isValidId(followId) && (
+        resource == null ||
+        existing().followerId == request.auth.uid ||
+        existing().followingId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.followerId == request.auth.uid ||
+        resource.data.followingId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(followId)
+        && isValidFollow(incoming())
+        && incoming().id == followId
+        && incoming().followerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if false;
+      allow delete: if isVerified() && isValidId(followId) && (existing().followerId == request.auth.uid || isAdmin());
+    }
+
+    // 10. Friendships
+    match /friendships/{friendshipId} {
+      allow get: if isSignedIn() && isValidId(friendshipId) && (
+        resource == null ||
+        existing().requesterId == request.auth.uid ||
+        existing().receiverId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.requesterId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(friendshipId)
+        && isValidFriendship(incoming())
+        && incoming().id == friendshipId
+        && incoming().requesterId == request.auth.uid
+        && incoming().status in ['pending', 'blocked']
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if (
+        isVerified() && isValidId(friendshipId) && isValidFriendship(incoming()) && (
+          isAdmin() ||
+          (
+            (existing().receiverId == request.auth.uid || existing().requesterId == request.auth.uid)
+            && incoming().id == existing().id
+            && incoming().requesterId == existing().requesterId
+            && incoming().receiverId == existing().receiverId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(friendshipId) && (
+        existing().requesterId == request.auth.uid ||
+        existing().receiverId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // 11. Reading Groups and Group Conversations
+    match /groups/{groupId} {
+      allow get: if isSignedIn() && (
+        resource == null ||
+        resource.data.members.hasAny([request.auth.uid]) ||
+        resource.data.pendingInvitees.hasAny([request.auth.uid]) ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.members.hasAny([request.auth.uid]) || isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(groupId)
+        && isValidGroup(incoming())
+        && incoming().id == groupId
+        && incoming().creatorId == request.auth.uid
+        && incoming().members.hasOnly([request.auth.uid])
+        && incoming().admins.hasOnly([request.auth.uid])
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(groupId)
+        && isValidGroup(incoming())
+        && incoming().id == existing().id
+        && incoming().creatorId == existing().creatorId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          isGroupAdmin(groupId) ||
+          (isGroupMember(groupId) && incoming().lastSenderId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly([
+             'lastMessage', 'lastSenderId', 'lastMessageAt', 'updatedAt'
+           ])) ||
+          (isGroupMember(groupId) &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['pendingInvitees', 'updatedAt'])) ||
+          (isGroupMember(groupId) && existing().members.hasAny([request.auth.uid]) &&
+           !incoming().members.hasAny([request.auth.uid]) &&
+           !incoming().admins.hasAny([request.auth.uid]) &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['members', 'admins', 'updatedAt'])) ||
+          (!existing().members.hasAny([request.auth.uid]) &&
+           existing().pendingInvitees.hasAny([request.auth.uid]) &&
+           incoming().members.hasAny([request.auth.uid]) &&
+           !incoming().pendingInvitees.hasAny([request.auth.uid]) &&
+           exists(/databases/$(database)/documents/groupInvitations/$("ginv_" + groupId + "_" + request.auth.uid)) &&
+           get(/databases/$(database)/documents/groupInvitations/$("ginv_" + groupId + "_" + request.auth.uid)).data.status == 'pending' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['members', 'pendingInvitees', 'updatedAt']))
+        );
+      allow delete: if isVerified() && isGroupAdmin(groupId);
+
+      match /members/{memberId} {
+        allow get, list: if isGroupMember(groupId) || isGroupAdmin(groupId);
+        allow create: if isVerified()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && incoming().keys().hasOnly(['id', 'groupId', 'userId', 'userName', 'userAvatar', 'role', 'joinedAt'])
+          && incoming().id == memberId
+          && incoming().groupId == groupId
+          && incoming().userId == memberId
+          && incoming().userName is string && incoming().userName.size() <= 100
+          && incoming().userAvatar is string && incoming().userAvatar.size() <= 5000
+          && incoming().role in ['creator', 'admin', 'member']
+          && incoming().joinedAt == request.time
+          && (isGroupAdmin(groupId) || (request.auth.uid == memberId && isGroupMember(groupId)));
+        allow update: if isVerified() && isGroupAdmin(groupId)
+          && incoming().groupId == existing().groupId
+          && incoming().userId == existing().userId
+          && incoming().joinedAt == existing().joinedAt;
+        allow delete: if isVerified() && (
+          isGroupAdmin(groupId) || request.auth.uid == memberId
+        );
+      }
+
+      match /messages/{messageId} {
+        allow get, list: if isVerified() && isGroupMember(groupId);
+        allow create: if isVerified()
+          && isValidId(groupId)
+          && isValidId(messageId)
+          && isValidGroupMessage(incoming())
+          && incoming().id == messageId
+          && incoming().groupId == groupId
+          && incoming().senderId == request.auth.uid
+          && incoming().createdAt == request.time
+          && isGroupMember(groupId);
+        allow update: if isVerified()
+          && isValidGroupMessage(incoming())
+          && incoming().id == existing().id
+          && incoming().groupId == existing().groupId
+          && incoming().senderId == existing().senderId
+          && incoming().createdAt == existing().createdAt
+          && isGroupMember(groupId)
+          && (isGroupAdmin(groupId) || incoming().diff(existing()).affectedKeys().hasOnly(['reactions']));
+        allow delete: if isVerified() && isGroupAdmin(groupId);
+      }
+    }
+
+    match /groupInvitations/{invitationId} {
+      allow get: if isSignedIn() && (
+        resource == null || resource.data.inviteeId == request.auth.uid ||
+        resource.data.inviterId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.inviteeId == request.auth.uid || resource.data.inviterId == request.auth.uid || isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(invitationId)
+        && isValidGroupInvitation(incoming())
+        && incoming().id == invitationId
+        && incoming().status == 'pending'
+        && incoming().inviterId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isGroupMember(incoming().groupId)
+        && get(/databases/$(database)/documents/groups/$(incoming().groupId)).data.pendingInvitees.hasAny([incoming().inviteeId]);
+      allow update: if isVerified()
+        && isValidGroupInvitation(incoming())
+        && existing().inviteeId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().groupId == existing().groupId
+        && incoming().inviterId == existing().inviterId
+        && incoming().inviteeId == existing().inviteeId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && existing().status == 'pending'
+        && incoming().status in ['accepted', 'declined']
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isVerified() && (
+        existing().inviteeId == request.auth.uid || isGroupAdmin(existing().groupId)
+      );
+    }
+
+
+    // Shared reading sessions and invitations
+    match /readingSessions/{sessionId} {
+      allow get, list: if isVerified() && (resource.data.hostId == request.auth.uid || resource.data.participantId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(sessionId) && isValidReadingSession(incoming())
+        && incoming().id == sessionId && incoming().hostId == request.auth.uid
+        && incoming().activeControllerId == request.auth.uid && incoming().status == 'waiting'
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidReadingSession(incoming())
+        && incoming().id == existing().id && incoming().hostId == existing().hostId
+        && incoming().bookId == existing().bookId && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time && (
+          (existing().participantId == request.auth.uid && existing().status == 'waiting' && incoming().status == 'active'
+            && incoming().participantId == existing().participantId
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status','participantName','participantAvatar','updatedAt'])) ||
+          (existing().activeControllerId == request.auth.uid && existing().status == 'active'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['currentChapter','currentPage','scrollPosition','updatedAt'])) ||
+          ((existing().hostId == request.auth.uid || existing().participantId == request.auth.uid)
+            && incoming().status == 'ended' && incoming().diff(existing()).affectedKeys().hasOnly(['status','updatedAt'])) ||
+          (existing().activeControllerId == request.auth.uid && incoming().activeControllerId == existing().participantId
+            && incoming().diff(existing()).affectedKeys().hasOnly(['activeControllerId','activeControllerName','controllerLeaseUntil','updatedAt']))
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /readingInvitations/{invitationId} {
+      allow get, list: if isVerified() && (resource.data.inviterId == request.auth.uid || resource.data.inviteeId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(invitationId) && isValidReadingInvitation(incoming())
+        && incoming().id == invitationId && incoming().inviterId == request.auth.uid && incoming().status == 'pending'
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/readingSessions/$(incoming().sessionId))
+        && getAfter(/databases/$(database)/documents/readingSessions/$(incoming().sessionId)).data.hostId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/readingSessions/$(incoming().sessionId)).data.participantId == incoming().inviteeId;
+      allow update: if isVerified() && isValidReadingInvitation(incoming())
+        && incoming().id == existing().id && incoming().inviterId == existing().inviterId
+        && incoming().inviteeId == existing().inviteeId && incoming().sessionId == existing().sessionId
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && existing().inviteeId == request.auth.uid && existing().status == 'pending'
+        && incoming().status in ['accepted','declined']
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status','updatedAt']);
+      allow delete: if isVerified() && (resource.data.inviteeId == request.auth.uid || isAdmin());
+    }
+
+    match /readingRemoteRequests/{requestId} {
+      function isSessionMember(sid) {
+        return exists(/databases/$(database)/documents/readingSessions/$(sid)) && (
+          get(/databases/$(database)/documents/readingSessions/$(sid)).data.hostId == request.auth.uid ||
+          get(/databases/$(database)/documents/readingSessions/$(sid)).data.participantId == request.auth.uid
+        );
+      }
+      allow get, list: if isVerified() && isSessionMember(resource.data.sessionId);
+      allow create: if isVerified() && isValidId(requestId) && isValidReadingRemoteRequest(incoming())
+        && incoming().id == requestId && incoming().requesterId == request.auth.uid && incoming().status == 'pending'
+        && incoming().createdAt == request.time && isSessionMember(incoming().sessionId);
+      allow update: if isVerified() && isValidReadingRemoteRequest(incoming())
+        && incoming().id == existing().id && incoming().sessionId == existing().sessionId
+        && incoming().requesterId == existing().requesterId && incoming().createdAt == existing().createdAt
+        && existing().status == 'pending' && incoming().status in ['approved','rejected']
+        && get(/databases/$(database)/documents/readingSessions/$(existing().sessionId)).data.activeControllerId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if isAdmin();
+    }
+
+    // 12. Direct Chats
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && isValidId(chatId) && (
+        resource == null ||
+        existing().participantA == request.auth.uid ||
+        existing().participantB == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.participantA == request.auth.uid ||
+        resource.data.participantB == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(chatId)
+        && (ownerClaim() || !hasAccountRestriction('chat'))
+        && isValidChat(incoming())
+        && incoming().id == chatId
+        && (incoming().participantA == request.auth.uid || incoming().participantB == request.auth.uid)
+        && incoming().lastSenderId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if (
+        isVerified() && isValidId(chatId) && isValidChat(incoming()) && (ownerClaim() || !hasAccountRestriction('chat')) && (
+          isAdmin() ||
+          (
+            (existing().participantA == request.auth.uid || existing().participantB == request.auth.uid)
+            && incoming().id == existing().id
+            && incoming().participantA == existing().participantA
+            && incoming().participantB == existing().participantB
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'lastMessage', 'lastSenderId', 'unreadCountA', 'unreadCountB',
+              'participantAName', 'participantBName', 'participantAAvatar', 'participantBAvatar',
+              'updatedAt', 'nicknames', 'hiddenFor'
+            ])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(chatId) && isAdmin();
+
+      // 12. Chat Messages Subcollection (Pillar 1 Master Gate)
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(chatId) && isValidId(messageId) && (
+          get(/databases/$(database)/documents/chats/$(chatId)).data.participantA == request.auth.uid ||
+          get(/databases/$(database)/documents/chats/$(chatId)).data.participantB == request.auth.uid ||
+          isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          resource.data.senderId == request.auth.uid ||
+          resource.data.receiverId == request.auth.uid ||
+          isAdmin()
+        );
+        allow create: if isVerified()
+          && (ownerClaim() || !hasAccountRestriction('chat'))
+          && isValidId(chatId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming())
+          && incoming().id == messageId
+          && incoming().chatId == chatId
+          && incoming().senderId == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/chats/$(chatId))
+          && (
+            get(/databases/$(database)/documents/chats/$(chatId)).data.participantA == request.auth.uid ||
+            get(/databases/$(database)/documents/chats/$(chatId)).data.participantB == request.auth.uid
+          );
+        allow update: if isVerified()
+          && (ownerClaim() || !hasAccountRestriction('chat'))
+          && isValidId(chatId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming())
+          && incoming().id == existing().id
+          && incoming().chatId == existing().chatId
+          && incoming().senderId == existing().senderId
+          && incoming().receiverId == existing().receiverId
+          && incoming().createdAt == existing().createdAt
+          && (
+            isAdmin() ||
+            (
+              (get(/databases/$(database)/documents/chats/$(chatId)).data.participantA == request.auth.uid ||
+               get(/databases/$(database)/documents/chats/$(chatId)).data.participantB == request.auth.uid)
+              && (
+                (existing().senderId == request.auth.uid &&
+                 incoming().diff(existing()).affectedKeys().hasOnly([
+                   'text', 'status', 'reactions', 'isEdited', 'editedAt', 'isDeletedForEveryone',
+                   'isDeleted', 'deletedAt', 'deletedForUsers'
+                 ])) ||
+                (existing().receiverId == request.auth.uid &&
+                 incoming().diff(existing()).affectedKeys().hasOnly([
+                   'status', 'reactions', 'deletedForUsers'
+                 ]))
+              )
+            )
+          );
+        allow delete: if isVerified() && isValidId(chatId) && isValidId(messageId) && isAdmin();
+      }
+    }
+
+    // 13. Notifications
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && isValidId(notificationId) && (
+        resource == null ||
+        existing().recipientId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.recipientId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && incoming().id == notificationId
+        && incoming().actorId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if (
+        isVerified() && isValidId(notificationId) && isValidNotification(incoming()) && (
+          isAdmin() ||
+          (
+            existing().recipientId == request.auth.uid
+            && incoming().id == existing().id
+            && incoming().recipientId == existing().recipientId
+            && incoming().actorId == existing().actorId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['read', 'updatedAt'])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(notificationId) && (
+        existing().recipientId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // 14. Reports (With Terminal State Locking - Pillar 4.6)
+    match /reports/{reportId} {
+      allow get: if isSignedIn() && isValidId(reportId) && (
+        resource == null ||
+        existing().reporterId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.reporterId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified()
+        && isValidId(reportId)
+        && isValidReport(incoming())
+        && incoming().id == reportId
+        && incoming().reporterId == request.auth.uid
+        && incoming().status == 'open'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if (
+        isVerified() && isValidId(reportId) && isValidReport(incoming()) && (
+          isAdmin() ||
+          (
+            existing().status == 'open'
+            && existing().reporterId == request.auth.uid
+            && incoming().id == existing().id
+            && incoming().reporterId == existing().reporterId
+            && incoming().targetType == existing().targetType
+            && incoming().targetId == existing().targetId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['reason', 'updatedAt'])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(reportId) && isAdmin();
+    }
+
+    // 15. Admins Registry
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      // Roles are only provisioned and changed by trusted Admin SDK functions.
+      allow create, update, delete: if false;
+    }
+
+
+    // Headquarters data is server-managed. Callable functions use the Admin SDK.
+    match /hqStaff/{uid} {
+      allow get, list: if isOwner();
+      allow create, update, delete: if false;
+    }
+    match /hqStaffProfiles/{uid} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+    match /hqAccountControls/{uid} {
+      allow read, write: if false;
+    }
+    match /hqEvents/{eventId} {
+      allow get, list: if hasHqPermission('health:read');
+      allow create, update, delete: if false;
+    }
+    match /hqAuditLogs/{eventId} {
+      allow get, list: if hasHqPermission('audit:read');
+      allow create, update, delete: if false;
+    }
+    match /hqRateLimits/{uid} {
+      allow read, write: if false;
+    }
+    match /hqConfig/{configId} {
+      allow get: if configId == 'platform';
+      allow list, create, update, delete: if false;
+    }
+    match /hqBrandCampaigns/{campaignId} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+    match /hqSecurityEvents/{eventId} {
+      allow read, write: if false;
+    }
+    match /hqDeletionRequests/{uid} {
+      allow read, write: if false;
+    }
+    match /contactMessages/{messageId} {
+      // Contact submissions and support notes are written/read only by trusted callables.
+      allow read, write: if false;
+    }
+
+    // 16. Social Activity Feed Posts
+    match /posts/{postId} {
+      allow get: if isValidId(postId) && (
+        resource == null ||
+        existing().visibility == 'public' ||
+        (isSignedIn() && (existing().authorId == request.auth.uid || isAdmin()))
+      );
+      allow list: if resource.data.visibility == 'public' || (
+        isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin())
+      );
+      allow create: if isVerified()
+        && communityEnabled()
+        && (ownerClaim() || !hasAccountRestriction('community'))
+        && isValidId(postId)
+        && isValidSocialPost(incoming())
+        && incoming().id == postId
+        && incoming().authorId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if (
+        isVerified() && isValidId(postId) && isValidSocialPost(incoming()) && (
+          isAdmin() ||
+          (
+            existing().authorId == request.auth.uid
+            && incoming().id == existing().id
+            && incoming().authorId == existing().authorId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'text', 'visibility', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().visibility == 'public'
+            && incoming().id == existing().id
+            && incoming().authorId == existing().authorId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'likesCount', 'commentsCount', 'updatedAt'
+            ])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(postId) && (existing().authorId == request.auth.uid || isAdmin());
+    }
+
+    // 17. Social Post Likes
+    match /postLikes/{likeId} {
+      allow get: if isValidId(likeId) && (
+        resource == null ||
+        existing().postId is string ||
+        isAdmin()
+      );
+      allow list: if resource.data.postId is string || isTokenAdmin();
+      allow create: if isVerified()
+        && communityEnabled()
+        && (ownerClaim() || !hasAccountRestriction('community'))
+        && isValidId(likeId)
+        && isValidPostLike(incoming())
+        && incoming().id == likeId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isVerified() && isValidId(likeId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // 18. Social Post Comments
+    match /postComments/{commentId} {
+      allow get: if isValidId(commentId) && (
+        resource == null ||
+        existing().postId is string ||
+        isAdmin()
+      );
+      allow list: if resource.data.postId is string || isTokenAdmin();
+      allow create: if isVerified()
+        && communityEnabled()
+        && (ownerClaim() || !hasAccountRestriction('community'))
+        && isValidId(commentId)
+        && isValidPostComment(incoming())
+        && incoming().id == commentId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if (
+        isVerified() && isValidId(commentId) && isValidPostComment(incoming()) && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid
+            && incoming().id == existing().id
+            && incoming().postId == existing().postId
+            && incoming().userId == existing().userId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'text', 'userName', 'userUsername', 'userAvatar', 'updatedAt'
+            ])
+          )
+        )
+      );
+      allow delete: if isVerified() && isValidId(commentId) && (existing().userId == request.auth.uid || isAdmin());
     }
   }
 }

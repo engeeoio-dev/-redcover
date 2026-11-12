@@ -50,6 +50,7 @@ import { uploadFileToRedcoverStorage } from '../services/firebase/storageService
 import { extractPdfTextAndCoverFromFile } from '../services/pdf/pdfExtractor';
 import { ImageCropModal } from '../components/common/ImageCropModal';
 import { BookCover } from '../components/common/UIPrimitives';
+import { useHqPublicConfig } from '../hooks/useHqPublicConfig';
 
 interface EditableChapter {
   id?: string;
@@ -98,6 +99,7 @@ type EditorPaper = 'light' | 'sepia' | 'dark';
 const STUDIO_CATEGORIES = REDCOVER_CATEGORIES.filter((c) => c !== 'All');
 
 export const CreateBookPage: React.FC = () => {
+  const platformConfig = useHqPublicConfig();
   const [searchParams, setSearchParams] = useSearchParams();
   const editBookIdFromUrl = searchParams.get('edit') || undefined;
   const navigate = useNavigate();
@@ -131,6 +133,14 @@ export const CreateBookPage: React.FC = () => {
   const [coverURL, setCoverURL] = useState('');
   const [fileURL, setFileURL] = useState('');
   const [coverCropFile, setCoverCropFile] = useState<File | null>(null);
+  const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
+  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
+  useEffect(() => () => {
+    if (coverURL.startsWith('blob:')) URL.revokeObjectURL(coverURL);
+  }, [coverURL]);
+  useEffect(() => () => {
+    if (fileURL.startsWith('blob:')) URL.revokeObjectURL(fileURL);
+  }, [fileURL]);
   const [wordCountGoal, setWordCountGoal] = useState<number>(15000);
 
   // Upload & PDF Extraction States
@@ -265,6 +275,8 @@ export const CreateBookPage: React.FC = () => {
       found.availableModes || (found.format === 'pdf' ? ['pdf', 'text', 'audio'] : ['text', 'audio'])
     );
     setLanguage(found.language || 'English');
+    setPendingCoverFile(null);
+    setPendingPdfFile(null);
     setCoverURL(found.coverURL || '');
     setFileURL(found.fileURL || '');
 
@@ -333,6 +345,8 @@ export const CreateBookPage: React.FC = () => {
     setLanguage('English');
     setCoverURL('');
     setFileURL('');
+    setPendingCoverFile(null);
+    setPendingPdfFile(null);
     setPdfPageCount(0);
     setPdfFileName('');
     setPdfExtractedSummary('');
@@ -389,32 +403,11 @@ export const CreateBookPage: React.FC = () => {
   };
 
   const handleCroppedCoverUpload = async (file: File) => {
-    if (!currentUser) return;
-    setUploadingCover(true);
-    setCoverProgress(0);
-    setError('');
-    try {
-      const targetKey = activeBookId || currentUser.uid;
-      const url = await uploadFileToRedcoverStorage('book_covers', targetKey, file, setCoverProgress);
-      setCoverURL(url);
-      setMediaLibrary((prev) => [
-        {
-          id: `media-${Date.now()}`,
-          url,
-          name: file.name,
-          caption: 'Book Cover',
-          createdAt: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-      addToast('Cover uploaded to Firebase Storage.', 'success');
-      setCoverCropFile(null);
-    } catch (err: any) {
-      setError(err?.message || 'Cover upload failed.');
-      throw new Error(err?.message || 'Cover upload failed.');
-    } finally {
-      setUploadingCover(false);
-    }
+    setPendingCoverFile(file);
+    setCoverURL(URL.createObjectURL(file));
+    setError(file.size > 10 * 1024 * 1024 ? 'Cover image is too large. Maximum supported size is 10 MB.' : '');
+    setCoverCropFile(null);
+    addToast('Cover ready. It will upload when you save or publish the book.', 'success');
   };
 
   const coverCropDialog = coverCropFile ? (
@@ -439,6 +432,13 @@ export const CreateBookPage: React.FC = () => {
       setError('Choose at least one book format before selecting the PDF.');
       return;
     }
+    if (file.size > 25 * 1024 * 1024) {
+      setPendingPdfFile(file);
+      setPdfFileName(file.name);
+      setFileURL('');
+      setError('PDF is too large. Maximum supported size is 25 MB. Choose a smaller file before uploading.');
+      return;
+    }
 
     const wantsPdf = availableModes.includes('pdf');
     const wantsText = availableModes.includes('text') || availableModes.includes('audio');
@@ -450,19 +450,13 @@ export const CreateBookPage: React.FC = () => {
     setError('');
 
     try {
-      const targetKey = activeBookId || currentUser.uid;
-
-      // 1. Extract text chapters & Page 1 cover from the PDF in parallel with Storage upload
+      // Extract text locally now; the PDF and cover stay staged until Save/Publish.
       const extractionPromise = extractPdfTextAndCoverFromFile(file, (stage) => {
         setPdfExtractStage(stage);
       });
-      const uploadPromise = wantsPdf
-        ? uploadFileToRedcoverStorage('book_pdfs', targetKey, file, setPdfProgress)
-        : Promise.resolve('');
-
-      const [extracted, uploadedPdfUrl] = await Promise.all([extractionPromise, uploadPromise]);
-
-      setFileURL(uploadedPdfUrl);
+      const extracted = await extractionPromise;
+      setPendingPdfFile(wantsPdf ? file : null);
+      setFileURL(wantsPdf ? URL.createObjectURL(file) : '');
       setPdfPageCount(extracted.numPages);
       setPdfExtractedSummary(wantsText ? extracted.summaryPreview : '');
 
@@ -494,33 +488,16 @@ export const CreateBookPage: React.FC = () => {
 
       // If the user has not uploaded a custom cover yet, automatically use Page 1 of the PDF as the book cover!
       if (!coverURL) {
-        if (
-          uploadedPdfUrl.startsWith('https://redcover.app/pdf-text-edition/') &&
-          extracted.coverDataUrl
-        ) {
+        if (extracted.coverBlob) {
+          const coverFile = new File(
+            [extracted.coverBlob],
+            `${file.name.replace(/\.pdf$/i, '')}_cover.jpg`,
+            { type: 'image/jpeg' }
+          );
+          setPendingCoverFile(coverFile);
+          setCoverURL(extracted.coverDataUrl || URL.createObjectURL(coverFile));
+        } else if (extracted.coverDataUrl) {
           setCoverURL(extracted.coverDataUrl);
-        } else if (extracted.coverBlob) {
-          try {
-            setUploadingCover(true);
-            const coverFile = new File(
-              [extracted.coverBlob],
-              `${file.name.replace(/\.pdf$/i, '')}_cover.jpg`,
-              { type: 'image/jpeg' }
-            );
-            const autoCoverUrl = await uploadFileToRedcoverStorage(
-              'book_covers',
-              targetKey,
-              coverFile,
-              setCoverProgress
-            );
-            setCoverURL(autoCoverUrl || extracted.coverDataUrl);
-          } catch {
-            if (extracted.coverDataUrl) {
-              setCoverURL(extracted.coverDataUrl);
-            }
-          } finally {
-            setUploadingCover(false);
-          }
         }
       }
 
@@ -534,14 +511,14 @@ export const CreateBookPage: React.FC = () => {
         'success'
       );
     } catch (err: any) {
-      setError(err?.message || 'PDF upload or text extraction failed.');
+        setError(err?.message || 'PDF could not be processed.');
     } finally {
       setUploadingPdf(false);
       setExtractingPdf(false);
     }
   };
 
-  // Media Library / Manuscript Image Upload to Firebase Storage
+  // Media Library / Manuscript Image Upload
   const handleManuscriptImageUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     autoSelectForInsert = true
@@ -852,12 +829,32 @@ export const CreateBookPage: React.FC = () => {
 
   // Save Draft or Publish Book via RedcoverContext
   const handleSaveBook = async (status: 'draft' | 'published') => {
+    if (status === 'published' && !platformConfig.allowBookPublishing) {
+      const msg = 'Publishing is temporarily disabled by Redcover. Your draft is safe; try publishing later.';
+      setError(msg);
+      addToast(msg, 'error');
+      return;
+    }
     if (!currentUser) {
       navigate('/auth');
       return;
     }
     setError('');
     setSuccessMsg('');
+
+    const pdfSizeLimit = 25 * 1024 * 1024;
+    const coverSizeLimit = 10 * 1024 * 1024;
+    const uploadBlocker = pendingPdfFile && pendingPdfFile.size > pdfSizeLimit
+      ? 'PDF is too large. Maximum supported size is 25 MB.'
+      : pendingCoverFile && pendingCoverFile.size > coverSizeLimit
+        ? 'Cover image is too large. Maximum supported size is 10 MB.'
+        : pendingPdfFile && pendingPdfFile.type !== 'application/pdf' && !pendingPdfFile.name.toLowerCase().endsWith('.pdf')
+          ? 'Select a valid PDF file before uploading.'
+          : null;
+    if (uploadBlocker) {
+      setError(uploadBlocker);
+      return;
+    }
 
     const effectiveTitle = title.trim() || (status === 'draft' ? 'Untitled Manuscript' : '');
     if (!effectiveTitle) {
@@ -876,7 +873,7 @@ export const CreateBookPage: React.FC = () => {
         setActiveScreen('details');
         return;
       }
-      if (format === 'pdf' && !fileURL) {
+      if (availableModes.includes('pdf') && !fileURL && !pendingPdfFile) {
         const msg = 'Please upload a PDF file in Book Details before publishing.';
         setError(msg);
         addToast(msg, 'info');
@@ -896,6 +893,8 @@ export const CreateBookPage: React.FC = () => {
     }
 
     setSaving(true);
+      let savedFileURL = fileURL;
+      let savedCoverURL = coverURL;
     try {
       if (!title.trim() && status === 'draft') {
         setTitle(effectiveTitle);
@@ -918,6 +917,29 @@ export const CreateBookPage: React.FC = () => {
               },
             ];
 
+      const uploadEntityId = activeBookId || currentUser.uid;
+      if (pendingPdfFile) {
+        setUploadingPdf(true);
+        setPdfProgress(0);
+        savedFileURL = await uploadFileToRedcoverStorage('book_pdfs', uploadEntityId, pendingPdfFile, setPdfProgress);
+        setFileURL(savedFileURL);
+        setPendingPdfFile(null);
+      }
+      if (pendingCoverFile) {
+        setUploadingCover(true);
+        setCoverProgress(0);
+        savedCoverURL = await uploadFileToRedcoverStorage('book_covers', uploadEntityId, pendingCoverFile, setCoverProgress);
+        setCoverURL(savedCoverURL);
+        setPendingCoverFile(null);
+        setMediaLibrary((prev) => [{
+          id: `media-${Date.now()}`,
+          url: savedCoverURL,
+          name: pendingCoverFile.name,
+          caption: 'Book Cover',
+          createdAt: new Date().toISOString(),
+        }, ...prev]);
+      }
+
       const savedBookId = await publishOrSaveBook(
         {
           id: activeBookId,
@@ -925,8 +947,8 @@ export const CreateBookPage: React.FC = () => {
           description: description.trim(),
           shortDescription:
             subtitle.trim() || description.trim().slice(0, 140) || effectiveTitle,
-          coverURL: coverURL.trim(),
-          fileURL: format === 'pdf' ? fileURL : '',
+          coverURL: savedCoverURL.trim(),
+          fileURL: availableModes.includes('pdf') ? savedFileURL : '',
           format,
           availableModes,
           category,
@@ -954,6 +976,8 @@ export const CreateBookPage: React.FC = () => {
       console.error('Error saving book:', err);
       setError(err?.message || 'Failed to save your book.');
     } finally {
+      setUploadingPdf(false);
+      setUploadingCover(false);
       setSaving(false);
     }
   };
@@ -973,6 +997,24 @@ export const CreateBookPage: React.FC = () => {
       setError('Could not delete book.');
     }
   };
+
+  const publishBlocker = !currentUser
+    ? 'Sign in with Google before publishing.'
+    : availableModes.length === 0
+      ? 'Choose at least one reading format before publishing.'
+      : !title.trim()
+        ? 'Add a book title before publishing.'
+        : !description.trim()
+          ? 'Add a short book synopsis before publishing.'
+          : availableModes.includes('pdf') && !pendingPdfFile && !fileURL
+            ? 'Attach a PDF before publishing in PDF mode.'
+            : format === 'story' && !chapters.some((chapter) => chapter.title.trim() && chapter.content.trim())
+              ? 'Add content to at least one chapter before publishing.'
+              : pendingPdfFile && pendingPdfFile.size > 25 * 1024 * 1024
+                ? 'PDF is too large. Maximum supported size is 25 MB.'
+                : pendingCoverFile && pendingCoverFile.size > 10 * 1024 * 1024
+                  ? 'Cover image is too large. Maximum supported size is 10 MB.'
+                  : null;
 
   // Render formatted chapter blocks for Preview & Live Reader
   const renderFormattedBlocks = (content: string) => {
@@ -1654,6 +1696,7 @@ export const CreateBookPage: React.FC = () => {
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#F1F1F4] dark:border-[#262626]">
+                    {(error || publishBlocker) && <div role="alert" className="w-full rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{error || publishBlocker}</div>}
                     <button
                       type="button"
                       onClick={() => setDashboardTab('all')}
@@ -1665,7 +1708,7 @@ export const CreateBookPage: React.FC = () => {
                     <div className="flex items-center gap-2.5">
                       <button
                         type="button"
-                        disabled={saving || uploadingPdf || extractingPdf}
+                        disabled={saving || uploadingPdf || uploadingCover || extractingPdf}
                         onClick={() => handleSaveBook('draft')}
                         className="px-4 py-2.5 rounded-lg border border-[#DDDDE3] dark:border-[#262626] hover:border-[#E43136] text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                       >
@@ -1675,7 +1718,7 @@ export const CreateBookPage: React.FC = () => {
 
                       <button
                         type="button"
-                        disabled={saving || uploadingPdf || extractingPdf}
+                        disabled={saving || uploadingPdf || uploadingCover || extractingPdf || Boolean(publishBlocker) || !platformConfig.allowBookPublishing}
                         onClick={() => handleSaveBook('published')}
                         className="px-5 py-2.5 rounded-lg bg-[#E43136] hover:bg-[#B9272D] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                       >
@@ -1943,7 +1986,8 @@ export const CreateBookPage: React.FC = () => {
         )}
 
         {/* Right Actions: Save Draft & Publish */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="relative flex items-center gap-1.5 shrink-0">
+          {(error || publishBlocker) && <div role="alert" className="absolute right-0 bottom-full mb-2 max-w-xs rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[11px] text-red-700 shadow-sm dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{error || publishBlocker}</div>}
           {activeScreen === 'editor' && (
             <button
               type="button"
@@ -1956,7 +2000,7 @@ export const CreateBookPage: React.FC = () => {
           )}
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || uploadingPdf || uploadingCover}
             onClick={() => handleSaveBook('draft')}
             className="py-1.5 px-2.5 rounded-lg border border-[#DDDDE3] dark:border-[#2C2C35] hover:bg-[#FAFAFB] dark:hover:bg-[#26262E] text-xs font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
           >
@@ -1965,7 +2009,7 @@ export const CreateBookPage: React.FC = () => {
           </button>
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || uploadingPdf || uploadingCover || Boolean(publishBlocker)}
             onClick={() => handleSaveBook('published')}
             className="py-1.5 px-3 rounded-lg bg-[#E43136] hover:bg-[#B9272D] text-white text-xs font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
           >
@@ -2963,7 +3007,7 @@ export const CreateBookPage: React.FC = () => {
       )}
 
       {/* ==================================================================== */}
-      {/* SCREEN 6: MEDIA LIBRARY (FIREBASE STORAGE)                           */}
+      {/* SCREEN 6: MEDIA LIBRARY (MEDIA LIBRARY)                           */}
       {/* ==================================================================== */}
       {activeScreen === 'media' && (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-[#FAFAFB] dark:bg-[#141418]">
@@ -2972,7 +3016,7 @@ export const CreateBookPage: React.FC = () => {
               <div>
                 <h2 className="text-sm font-bold">Book Media Library</h2>
                 <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8]">
-                  Upload illustrations or maps to Firebase Storage and insert them into any chapter.
+                  Upload illustrations or maps and insert them into any chapter.
                 </p>
               </div>
               <label className="py-2 px-3.5 rounded-lg bg-[#E43136] hover:bg-[#B9272D] text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
@@ -3082,6 +3126,7 @@ export const CreateBookPage: React.FC = () => {
               <p className="text-xs text-[#6E6E77] dark:text-[#9E9EA8] mt-0.5">
                 Configure word count goals, visibility, and publish your book to Redcover.
               </p>
+              {!platformConfig.allowBookPublishing && <p role="status" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">Redcover has temporarily paused publishing. You can still save your work as a draft.</p>}
             </div>
 
             <div className="space-y-3">
@@ -3116,10 +3161,11 @@ export const CreateBookPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="pt-4 border-t border-[#DDDDE3] dark:border-[#2C2C35] flex items-center justify-between gap-3">
+            <div className="relative pt-4 border-t border-[#DDDDE3] dark:border-[#2C2C35] flex items-center justify-between gap-3">
+              {(error || publishBlocker) && <div role="alert" className="absolute bottom-full mb-2 max-w-sm rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{error || publishBlocker}</div>}
               <button
                 type="button"
-                disabled={saving}
+                disabled={saving || uploadingPdf || uploadingCover}
                 onClick={() => handleSaveBook('draft')}
                 className="flex-1 py-2.5 px-4 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
               >
@@ -3128,7 +3174,7 @@ export const CreateBookPage: React.FC = () => {
               </button>
               <button
                 type="button"
-                disabled={saving}
+                disabled={saving || uploadingPdf || uploadingCover || Boolean(publishBlocker) || !platformConfig.allowBookPublishing}
                 onClick={() => handleSaveBook('published')}
                 className="flex-1 py-2.5 px-4 rounded-xl bg-[#E43136] hover:bg-[#B9272D] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
               >

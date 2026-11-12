@@ -86,15 +86,15 @@ export const PrivacyPolicyPage: React.FC = () => {
         {/* Section 4 */}
         <section className="space-y-3">
           <h2 className="font-display text-lg sm:text-xl font-bold text-[#202020] dark:text-[#F5F5F7]">
-            4. Firebase & Third-Party Infrastructure
+            4. Cloud Infrastructure & Third-Party Services
           </h2>
           <p>
-            Redcover utilizes reputable cloud services provided by Google LLC (Firebase):
+            Redcover uses Google cloud services for secure sign-in and file storage:
           </p>
           <ul className="list-disc pl-5 space-y-1.5">
-            <li><strong>Firebase Authentication:</strong> Manages secure user credentials and Google OAuth sign-in.</li>
+            <li><strong>Google sign-in:</strong> Manages secure user authentication through OAuth.</li>
             <li><strong>Cloud Firestore & Realtime Database:</strong> Stores application metadata, book records, comments, and real-time chat messages.</li>
-            <li><strong>Firebase Cloud Storage:</strong> Securely hosts user-uploaded book covers, chapter PDFs, and avatars.</li>
+            <li><strong>Cloud file storage:</strong> Securely hosts user-uploaded book covers, chapter PDFs, and avatars.</li>
           </ul>
           <p>
             These processors handle your data strictly in accordance with modern security standards and industry best practices.

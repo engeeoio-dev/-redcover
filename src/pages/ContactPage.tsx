@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, Instagram, Send, CheckCircle2, AlertCircle, Clock, MapPin, Sparkles } from 'lucide-react';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase/firebaseConfig';
 import { useRedcover } from '../contexts/RedcoverContext';
+import { headquartersService } from '../services/firebase/headquartersService';
 
 export const ContactPage: React.FC = () => {
   const { addToast } = useRedcover();
@@ -66,23 +65,16 @@ export const ContactPage: React.FC = () => {
     }
 
     setSubmitting(true);
-    const refCode = `MSG-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-
     try {
-      await setDoc(doc(db, 'contactMessages', refCode), {
-        referenceId: refCode,
+      const result = await headquartersService.submitContactMessage({
         name: cleanName.slice(0, 100),
         email: cleanEmail.slice(0, 150),
         subject: cleanSubject.slice(0, 200),
         message: cleanMessage.slice(0, 4000),
-        status: 'pending',
-        platform: 'web',
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 250) : '',
-        createdAt: serverTimestamp(),
       });
 
       localStorage.setItem('rc_last_contact_ts', Date.now().toString());
-      setSubmittedRefId(refCode);
+      setSubmittedRefId(result.referenceId);
       setName('');
       setEmail('');
       setSubject('');

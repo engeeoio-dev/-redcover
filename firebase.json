@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  },
+  "firestore": [
+    {
+      "database": "ai-studio-redcover-ec164fd1-8554-4ddc-a224-0e1a0561d823",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    }
+  ]
+}
