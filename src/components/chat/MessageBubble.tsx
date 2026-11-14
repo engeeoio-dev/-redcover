@@ -26,11 +26,13 @@ import { ChatMessage, ChatMessageReply, UserProfile, Book } from '../../models/t
 import { RedCodeCard } from '../books/RedCodeCard';
 import { detectRedCodeInText, findBookByRedCode } from '../../services/firebase/redCodeService';
 import { EmojiPickerTray } from './EmojiPickerTray';
+import { getChatAttachmentAccessUrl } from '../../services/firebase/storageAccessService';
 
 interface MessageBubbleProps {
   message: ChatMessage;
   isOwn: boolean;
   currentUserId: string;
+  conversationId: string;
   senderProfile?: UserProfile;
   otherUser?: UserProfile;
   allBooks: Book[];
@@ -143,6 +145,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   message,
   isOwn,
   currentUserId,
+  conversationId,
   senderProfile,
   otherUser,
   allBooks,
@@ -202,6 +205,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const longPressTimer = useRef<any>(null);
 
   const attachment = parseMessageAttachment(message.text || '');
+  const [secureAttachmentUrl, setSecureAttachmentUrl] = useState('');
+  const [attachmentAccessFailed, setAttachmentAccessFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setSecureAttachmentUrl('');
+    setAttachmentAccessFailed(false);
+    if (attachment.type) {
+      void getChatAttachmentAccessUrl(conversationId, message.id, 'direct')
+        .then((url) => { if (!cancelled) setSecureAttachmentUrl(url); })
+        .catch(() => { if (!cancelled) { setSecureAttachmentUrl(''); setAttachmentAccessFailed(true); } });
+    }
+    return () => { cancelled = true; };
+  }, [conversationId, message.id, message.text, attachment.type]);
+  const attachmentUrl = secureAttachmentUrl;
   const displayText = attachment.type ? attachment.cleanText : (message.text || '');
 
   // Detect whether this message should be rendered without a bubble (1 to 4 emojis like Instagram)
@@ -660,10 +677,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             ) : (
               <>
                 {/* 1. Photo Attachment Preview */}
-                {attachment.type === 'image' && attachment.url && (
+                {attachment.type === 'image' && attachmentUrl && (
                   <div className="mb-2 rounded-xl overflow-hidden shadow-xs border border-black/10">
                     <img
-                      src={attachment.url}
+                      src={attachmentUrl}
                       alt={attachment.label || 'Photo'}
                       onClick={() => setLightboxOpen(true)}
                       className="max-h-72 w-full object-cover hover:scale-102 transition-transform cursor-pointer"
@@ -672,9 +689,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 )}
 
                 {/* 2. Document Attachment Card */}
-                {attachment.type === 'file' && attachment.url && (
+                {attachment.type === 'file' && attachmentUrl && (
                   <a
-                    href={attachment.url}
+                    href={attachmentUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`flex items-center gap-3 p-2.5 mb-2 rounded-xl border transition-colors ${
@@ -699,7 +716,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 )}
 
                 {/* 3. Interactive Voice Note Audio Player */}
-                {attachment.type === 'voice' && attachment.url && (
+                {attachment.type === 'voice' && attachmentUrl && (
                   <div
                     className={`flex items-center gap-2 sm:gap-2.5 p-1.5 sm:p-2 mb-1.5 sm:mb-2 rounded-xl border w-full min-w-0 max-w-full ${
                       isOwn
@@ -708,7 +725,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     }`}
                   >
                     <button
-                      onClick={() => toggleVoicePlayback(attachment.url)}
+                      onClick={() => toggleVoicePlayback(attachmentUrl)}
                       className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 shadow-xs cursor-pointer transition-transform hover:scale-105 active:scale-95 ${
                         isOwn ? 'bg-white text-[#E43136]' : 'bg-[#E43136] text-white'
                       }`}
@@ -744,6 +761,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       </div>
                     </div>
                   </div>
+                )}
+
+                {attachment.type && !attachmentUrl && attachmentAccessFailed && (
+                  <p className="mb-2 text-xs opacity-75">This attachment is unavailable or you no longer have access.</p>
                 )}
 
                 {/* Plain Message Text / Caption */}
@@ -948,13 +969,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       )}
 
       {/* Lightbox Modal for Photo */}
-      {lightboxOpen && attachment.url && (
+      {lightboxOpen && attachmentUrl && (
         <div
           onClick={() => setLightboxOpen(false)}
           className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 cursor-zoom-out animate-in fade-in duration-150"
         >
           <img
-            src={attachment.url}
+            src={attachmentUrl}
             alt={attachment.label || 'Photo preview'}
             className="max-w-[90vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
           />

@@ -424,8 +424,8 @@ export const CreateBookPage: React.FC = () => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !currentUser) return;
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      setError('Please upload a valid PDF document.');
+    if (file.type !== 'application/pdf' || !file.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please choose a .pdf file recognized as application/pdf.');
       return;
     }
     if (availableModes.length === 0) {
@@ -848,7 +848,7 @@ export const CreateBookPage: React.FC = () => {
       ? 'PDF is too large. Maximum supported size is 25 MB.'
       : pendingCoverFile && pendingCoverFile.size > coverSizeLimit
         ? 'Cover image is too large. Maximum supported size is 10 MB.'
-        : pendingPdfFile && pendingPdfFile.type !== 'application/pdf' && !pendingPdfFile.name.toLowerCase().endsWith('.pdf')
+        : pendingPdfFile && (pendingPdfFile.type !== 'application/pdf' || !pendingPdfFile.name.toLowerCase().endsWith('.pdf'))
           ? 'Select a valid PDF file before uploading.'
           : null;
     if (uploadBlocker) {

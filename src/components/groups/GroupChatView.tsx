@@ -29,8 +29,40 @@ import { detectRedCodeInText, findBookByRedCode } from '../../services/firebase/
 import { ChatComposer } from '../chat/ChatComposer';
 import { ForwardModal } from '../chat/ForwardModal';
 import { ReportModal } from '../chat/ReportModal';
+import { getChatAttachmentAccessUrl } from '../../services/firebase/storageAccessService';
 
 const GROUP_QUICK_REACTIONS = ['❤️', '🔥', '😂', '👏', '🤯', '💯'];
+
+const GroupChatAttachment: React.FC<{ groupId: string; message: GroupMessage }> = ({ groupId, message }) => {
+  const match = message.text.match(/^\[attachment:(image|file|voice):([^\]]+)\](.*)$/s);
+  const [url, setUrl] = useState('');
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setUrl('');
+    setFailed(false);
+    if (match) {
+      void getChatAttachmentAccessUrl(groupId, message.id, 'group')
+        .then((resolved) => { if (!cancelled) setUrl(resolved); })
+        .catch(() => { if (!cancelled) { setUrl(''); setFailed(true); } });
+    }
+    return () => { cancelled = true; };
+  }, [groupId, message.id, message.text]);
+  if (!match) return <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">{message.text}</p>;
+  const [, type, payload, remainder] = match;
+  const parts = payload.split('|');
+  const label = type === 'image' || type === 'file' ? parts[0] : 'Voice message';
+  return (
+    <div className="space-y-2">
+      {type === 'image' && url && <img src={url} alt={label || 'Chat attachment'} className="max-h-72 max-w-full rounded-lg object-contain" />}
+      {type === 'voice' && url && <audio controls preload="none" src={url} className="max-w-full" />}
+      {type === 'file' && url && <a href={url} target="_blank" rel="noreferrer" className="underline break-all">{label || 'Open attachment'}</a>}
+      {!url && !failed && <span className="text-xs opacity-75">Loading secure attachment…</span>}
+      {failed && <span className="text-xs opacity-75">This attachment is unavailable or you no longer have access.</span>}
+      {remainder.trim() && <p className="text-xs whitespace-pre-wrap break-words">{remainder.trim()}</p>}
+    </div>
+  );
+};
 
 interface GroupChatViewProps {
   group: Group;
@@ -262,9 +294,7 @@ export const GroupChatView: React.FC<GroupChatViewProps> = ({
 
                           {/* Message text */}
                           {msg.text && (
-                            <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
-                              {msg.text}
-                            </p>
+                            <GroupChatAttachment groupId={group.id} message={msg} />
                           )}
 
                           {/* Book attachment */}

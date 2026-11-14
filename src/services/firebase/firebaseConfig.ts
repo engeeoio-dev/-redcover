@@ -4,9 +4,25 @@ import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getDatabase } from 'firebase/database';
 import { getFunctions } from 'firebase/functions';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import firebaseConfig from '../../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
+
+// Register reCAPTCHA Enterprise in Firebase App Check and set this public site
+// key in the hosting environment. Enforcement is enabled on Firebase services
+// after the production domain has been registered in the Firebase Console.
+const appCheckSiteKey = import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY?.trim();
+export const appCheck = appCheckSiteKey
+  ? initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    })
+  : null;
+
+if (!appCheckSiteKey && import.meta.env.PROD) {
+  console.error('Firebase App Check is not configured. Set VITE_RECAPTCHA_ENTERPRISE_SITE_KEY before production deployment.');
+}
 
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const defaultDb = getFirestore(app);

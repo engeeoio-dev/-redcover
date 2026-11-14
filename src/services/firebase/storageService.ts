@@ -963,6 +963,15 @@ export async function uploadFileToRedcoverStorage(
   file: File,
   onProgress?: (pct: number) => void
 ): Promise<string> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    throw new Error('Sign in with your Redcover account before uploading files.');
+  }
+
+  if (folder === 'book_pdfs' && (file.type !== 'application/pdf' || !/\.pdf$/i.test(file.name))) {
+    throw new Error('Choose a PDF file with the application/pdf MIME type.');
+  }
+
   const maxBytes =
     folder === 'book_pdfs'
       ? 25 * 1024 * 1024
@@ -973,31 +982,15 @@ export async function uploadFileToRedcoverStorage(
     throw new Error(`File exceeds maximum size (${folder === 'book_pdfs' ? '25MB' : folder === 'chat_attachments' ? '20MB' : '10MB'}).`);
   }
 
-  const uid = auth.currentUser?.uid || entityId || 'user';
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60);
+  const normalizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = folder === 'book_pdfs'
+    ? `${normalizedName.replace(/\.pdf$/i, '').slice(0, 56)}.pdf`
+    : normalizedName.slice(0, 60);
   const stamp = Date.now();
 
-  // Candidate paths in `red-cover.firebasestorage.app` (checks both Web and Android Storage rule conventions)
-  const candidatePaths =
-    folder === 'book_pdfs'
-      ? [
-          `book_content/${uid}_${stamp}_${safeName}`,
-          `books/${uid}/${stamp}_${safeName}`,
-          `users/${uid}/${stamp}_${safeName}`,
-          `book_pdfs/${entityId}_${stamp}_${safeName}`,
-        ]
-      : folder === 'book_covers'
-      ? [
-          `book_covers/${entityId}_${stamp}_${safeName}`,
-          `covers/${uid}_${stamp}_${safeName}`,
-          `book_images/${uid}_${stamp}_${safeName}`,
-          `users/${uid}/${stamp}_${safeName}`,
-        ]
-      : [
-          `${folder}/${entityId}_${stamp}_${safeName}`,
-          `users/${uid}/${stamp}_${safeName}`,
-          `uploads/${uid}_${stamp}_${safeName}`,
-        ];
+  // All client uploads use a UID-owned path. entityId remains diagnostic metadata only;
+  // for an edited book it is a book ID, not an authentication UID.
+  const path = `${folder}/${uid}_${stamp}_${safeName}`;
 
   let lastUploadError: any = null;
   const operationId = `upload_${stamp}`;
@@ -1010,12 +1003,11 @@ export async function uploadFileToRedcoverStorage(
     }).catch(() => {});
   };
   report('initiated', 'info');
-  for (let i = 0; i < candidatePaths.length; i++) {
-    const path = candidatePaths[i];
+  {
     const storageRef = ref(storage, path);
     let nextProgressMilestone = 25;
     try {
-      const task = uploadBytesResumable(storageRef, file);
+      const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
       const url = await new Promise<string>((resolve, reject) => {
         task.on(
           'state_changed',
@@ -1031,6 +1023,10 @@ export async function uploadFileToRedcoverStorage(
           },
           (err) => reject(err),
           async () => {
+            if (folder === 'book_pdfs' || folder === 'chat_attachments') {
+              resolve(path);
+              return;
+            }
             const downloadUrl = await getDownloadURL(task.snapshot.ref);
             resolve(downloadUrl);
           }
@@ -1041,17 +1037,7 @@ export async function uploadFileToRedcoverStorage(
     } catch (err: any) {
       lastUploadError = err;
       const code = String(err?.code || err?.message || '');
-      const isUnauthorized =
-        code.includes('storage/unauthorized') ||
-        code.includes('permission') ||
-        code.includes('403');
-      if (!isUnauthorized) {
-        // Non-permission errors are not fixed by trying another object path.
-        report('failed', 'critical', String(err?.code || 'storage/unknown'), path);
-        break;
-      }
-      if (i < candidatePaths.length - 1) report('retry', 'warning', String(err?.code || 'storage/unauthorized'), path);
-      // Continue trying another supported Storage path if unauthorized.
+      report('failed', 'critical', String(err?.code || 'storage/unknown'), path);
     }
   }
 

@@ -361,6 +361,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   message={msg}
                   isOwn={msg.senderId === currentUserId}
                   currentUserId={currentUserId}
+                  conversationId={chat.id}
                   senderProfile={msg.senderId === currentUserId ? undefined : otherUser}
                   otherUser={otherUser}
                   allBooks={allBooks}

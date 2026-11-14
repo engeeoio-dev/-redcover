@@ -74,6 +74,7 @@ import {
 } from '../models/types';
 import { initUserPresence } from '../services/firebase/presenceService';
 import { assignUniqueRedCodeToBook as assignUniqueRedCodeService } from '../services/firebase/redCodeService';
+import { getBookPdfAccessUrl } from '../services/firebase/storageAccessService';
 import {
   createGroup as createGroupService,
   inviteUserToGroup as inviteUserToGroupService,
@@ -2105,7 +2106,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       ) {
         try {
           const { extractPdfTextFromUrl } = await import('../services/pdf/pdfExtractor');
-          const extracted = await extractPdfTextFromUrl(matchedBook.fileURL, matchedBook.title);
+          const authorizedPdfUrl = await getBookPdfAccessUrl(matchedBook.id);
+          const extracted = await extractPdfTextFromUrl(authorizedPdfUrl, matchedBook.title);
           if (extracted.length > 0) {
             const nowIso = new Date().toISOString();
             const safeBookId = sanitizeId(bookId, 'book');

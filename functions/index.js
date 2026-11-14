@@ -6,14 +6,18 @@ const { getStorage } = require('firebase-admin/storage');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { beforeUserCreated } = require('firebase-functions/v2/identity');
+const { setGlobalOptions } = require('firebase-functions/v2');
 
 initializeApp();
+setGlobalOptions({ region: 'us-central1', maxInstances: 10, enforceAppCheck: true });
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'red-cover';
 const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'ai-studio-redcover-ec164fd1-8554-4ddc-a224-0e1a0561d823';
+const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || 'red-cover.firebasestorage.app';
 const OWNER_EMAIL = 'engeeo.io@gmail.com';
 const auth = getAuth();
 const db = getFirestore(undefined, DATABASE_ID);
+const defaultDb = getFirestore();
 const PERMISSIONS = {
   administrator: ['hq:overview', 'users:view', 'content:books', 'moderation:reports', 'health:read', 'audit:read', 'analytics:read', 'membership:read', 'support:read'],
   moderator: ['hq:overview', 'moderation:reports'],
@@ -22,6 +26,8 @@ const PERMISSIONS = {
   support_staff: ['hq:overview', 'support:read'],
 };
 const MAX_EVENT_MESSAGE = 400;
+// Long enough for PDF.js range requests while remaining short-lived.
+const SIGNED_READ_TTL_MS = 15 * 60 * 1000;
 
 function fail(code, message) {
   throw new HttpsError(code, message);
@@ -57,6 +63,148 @@ function safeId(value) {
   return safeText(value, 128).replace(/[^a-zA-Z0-9_\-]/g, '');
 }
 
+function storageObjectPathFromRecord(value, allowedFolders) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 6000) return '';
+  const bucket = getStorage().bucket(STORAGE_BUCKET);
+  let path = '';
+  if (value.startsWith('gs://')) {
+    const match = value.match(/^gs:\/\/([^/]+)\/(.+)$/);
+    if (!match || match[1] !== bucket.name) return '';
+    path = match[2];
+  } else if (/^https?:\/\//i.test(value)) {
+    let url;
+    try { url = new URL(value); } catch { return ''; }
+    if (url.hostname === 'firebasestorage.googleapis.com') {
+      const match = url.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+      if (!match || match[1] !== bucket.name) return '';
+      try { path = decodeURIComponent(match[2]); } catch { return ''; }
+    } else if (url.hostname === 'storage.googleapis.com') {
+      const match = url.pathname.match(/^\/([^/]+)\/(.+)$/);
+      if (!match || match[1] !== bucket.name) return '';
+      try { path = decodeURIComponent(match[2]); } catch { return ''; }
+    } else {
+      return '';
+    }
+  } else {
+    path = value.replace(/^\/+/, '').split(/[?#]/, 1)[0];
+  }
+  if (!path || path.includes('..') || path.includes('\\') || path.includes('//')) return '';
+  const folder = path.split('/')[0];
+  return allowedFolders.includes(folder) ? path : '';
+}
+
+async function createShortLivedReadUrl(objectPath) {
+  const bucket = getStorage().bucket(STORAGE_BUCKET);
+  const file = bucket.file(objectPath);
+  const [exists] = await file.exists();
+  if (!exists) fail('not-found', 'The stored file is unavailable.');
+  const [metadata] = await file.getMetadata();
+  const expiresAtMs = Date.now() + SIGNED_READ_TTL_MS;
+  const [url] = await file.getSignedUrl({
+    version: 'v4', action: 'read', expires: expiresAtMs,
+    responseDisposition: metadata.contentType === 'application/pdf' ? 'inline' : undefined,
+  });
+  return { url, expiresAt: new Date(expiresAtMs).toISOString() };
+}
+
+function redactStorageTokens(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const safe = { ...value };
+  for (const key of ['fileURL', 'pdfURL', 'downloadURL', 'coverURL', 'photoURL']) {
+    if (typeof safe[key] === 'string' && /[?&]token=/i.test(safe[key])) safe[key] = '[private storage reference]';
+  }
+  return safe;
+}
+
+function safeBrandAssetUrl(value) {
+  if (typeof value !== 'string' || value.length > 3000) return '';
+  try {
+    const url = new URL(value);
+    const match = url.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+    if (url.protocol !== 'https:' || url.hostname !== 'firebasestorage.googleapis.com'
+      || !match || match[1] !== STORAGE_BUCKET || !url.searchParams.has('token')) return '';
+    const path = decodeURIComponent(match[2]);
+    if (!path.startsWith('headquarters/branding/')) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+exports.getBookPdfAccess = onCall({ region: 'us-central1' }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) fail('unauthenticated', 'Sign in to read this book.');
+  if (request.auth.token.email_verified !== true) fail('permission-denied', 'Verify your account before reading.');
+  const user = await auth.getUser(uid);
+  if (user.disabled) fail('permission-denied', 'This account is disabled.');
+  const bookId = safeId(request.data?.bookId);
+  if (!bookId) fail('invalid-argument', 'A valid book ID is required.');
+  let bookSnap;
+  for (const [database, collectionName] of [
+    [db, 'books'], [defaultDb, 'books'], [defaultDb, 'Books'],
+    [defaultDb, 'stories'], [defaultDb, 'Stories'], [defaultDb, 'pdf_books'], [defaultDb, 'ebooks'],
+  ]) {
+    bookSnap = await database.collection(collectionName).doc(bookId).get();
+    if (bookSnap.exists) break;
+  }
+  if (!bookSnap.exists) fail('not-found', 'Book not found.');
+  const book = bookSnap.data();
+  const ownerId = book.authorId || book.userId || book.uploaderId || book.writerId;
+  const owner = ownerId === uid;
+  const claims = user.customClaims || {};
+  const permissions = Array.isArray(claims.hqPermissions) ? claims.hqPermissions : [];
+  const admin = claims.hqRole === 'owner' || permissions.includes('*') || permissions.includes('content:books');
+  const accountControl = await db.collection('hqAccountControls').doc(uid).get();
+  if (accountControl.get('suspended') === true) fail('permission-denied', 'This account is suspended.');
+  // Legacy Firestore rules treat status-less catalog records as published.
+  const isPublished = !Object.prototype.hasOwnProperty.call(book, 'status') || book.status === 'published';
+  if (!isPublished && !owner && !admin) fail('permission-denied', 'This book is not published.');
+  if (book.status === 'removed' && !admin) fail('permission-denied', 'This book is unavailable.');
+  const objectPath = storageObjectPathFromRecord(book.fileURL, ['book_pdfs', 'book_content', 'pdfs', 'books', 'users']);
+  if (!objectPath) fail('failed-precondition', 'This book does not reference a supported Redcover PDF object.');
+  return createShortLivedReadUrl(objectPath);
+});
+
+exports.getChatAttachmentAccess = onCall({ region: 'us-central1' }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) fail('unauthenticated', 'Sign in to view this attachment.');
+  const conversationId = safeId(request.data?.conversationId);
+  const messageId = safeId(request.data?.messageId);
+  const type = request.data?.conversationType === 'group' ? 'group' : 'direct';
+  if (!conversationId || !messageId) fail('invalid-argument', 'A valid conversation and message are required.');
+  let messageRef;
+  if (type === 'group') {
+    const group = await db.collection('groups').doc(conversationId).get();
+    if (!group.exists || !Array.isArray(group.get('members')) || !group.get('members').includes(uid)) fail('permission-denied', 'Only current group members can access attachments.');
+    messageRef = db.collection('groups').doc(conversationId).collection('messages').doc(messageId);
+  } else {
+    const chat = await db.collection('chats').doc(conversationId).get();
+    if (!chat.exists || ![chat.get('participantA'), chat.get('participantB')].includes(uid)) fail('permission-denied', 'Only conversation participants can access attachments.');
+    messageRef = db.collection('chats').doc(conversationId).collection('messages').doc(messageId);
+  }
+  const message = await messageRef.get();
+  if (!message.exists) fail('not-found', 'Message not found.');
+  const senderId = message.get('senderId');
+  const match = String(message.get('text') || '').match(/^\[attachment:(?:image|file|voice):([^\]]+)\]/s);
+  if (!match) fail('failed-precondition', 'This message has no supported file attachment.');
+  const parts = match[1].split('|');
+  const source = /^\[attachment:voice:/.test(String(message.get('text') || '')) ? parts[0] : (parts[1] || parts[0]);
+  const objectPath = storageObjectPathFromRecord(source, ['chat_attachments', 'chat_media', 'chat_voice', 'chat_files', 'users']);
+  if (!objectPath) fail('failed-precondition', 'This message does not reference a supported Redcover attachment.');
+  // Legacy locations are accepted only when their path encodes the sender UID.
+  // This prevents a participant from using a message as a proxy for another user's file.
+  const pathParts = objectPath.split('/');
+  const folder = pathParts[0];
+  const ownerSegment = pathParts[1] || '';
+  const ownerMatches = folder === 'users'
+    ? ownerSegment === senderId
+    : ownerSegment.startsWith(`${senderId}_`) || ownerSegment === senderId;
+  if (!ownerMatches) {
+    fail('permission-denied', 'The attachment owner does not match its sender.');
+  }
+  return createShortLivedReadUrl(objectPath);
+});
+
 async function writeAudit(actor, action, targetType, targetId, previousValue, newValue, result = 'success') {
   await db.collection('hqAuditLogs').add({
     actorUid: actor.uid,
@@ -80,7 +228,7 @@ function serviceHealth(status, details, checkedAt = new Date().toISOString()) {
   return { status, details, checkedAt };
 }
 
-exports.hqGetOverview = onCall({ region: 'us-central1', enforceAppCheck: false }, async (request) => {
+exports.hqGetOverview = onCall({ region: 'us-central1' }, async (request) => {
   const actor = await principal(request, 'hq:overview');
   const now = Timestamp.now();
   const rangeDays = Math.min(90, Math.max(1, Number(request.data?.rangeDays) || 7));
@@ -116,7 +264,7 @@ exports.hqGetOverview = onCall({ region: 'us-central1', enforceAppCheck: false }
   let rtdbHealth = serviceHealth('unknown', 'Not checked.');
   try { await auth.getUser(actor.uid); authHealth = serviceHealth('healthy', 'Authorized identity lookup succeeded.'); }
   catch (error) { authHealth = serviceHealth('critical', safeText(error.code || error.message)); }
-  try { await getStorage().bucket().getMetadata(); storageHealth = serviceHealth('healthy', 'Bucket metadata request succeeded.'); }
+  try { await getStorage().bucket(STORAGE_BUCKET).getMetadata(); storageHealth = serviceHealth('healthy', 'Bucket metadata request succeeded.'); }
   catch (error) { storageHealth = serviceHealth('warning', safeText(error.code || error.message)); }
   try { await getDatabase().ref('/status').limitToFirst(1).once('value'); rtdbHealth = serviceHealth('healthy', 'Realtime Database read probe succeeded.'); }
   catch (error) { rtdbHealth = serviceHealth('warning', safeText(error.code || error.message)); }
@@ -124,7 +272,7 @@ exports.hqGetOverview = onCall({ region: 'us-central1', enforceAppCheck: false }
   checked.storage = storageHealth;
   checked.realtimeDatabase = rtdbHealth;
   checked.functions = serviceHealth('healthy', 'This authenticated health-check function responded.');
-  checked.appCheck = serviceHealth('unknown', 'App Check enforcement is not configured for this endpoint.');
+  checked.appCheck = serviceHealth('healthy', 'This callable request passed App Check verification. Firestore, Storage and Realtime Database enforcement still depends on Firebase Console settings.');
   const scheduled = await db.collection('hqHealthChecks').doc('current').get().catch(() => null);
   checked.scheduledChecks = scheduled?.exists
     ? serviceHealth('healthy', `Last scheduled probes completed at ${scheduled.get('checkedAt')?.toDate?.().toISOString() || 'unknown time'}.`)
@@ -188,7 +336,7 @@ exports.hqListUsers = onCall({ region: 'us-central1' }, async (request) => {
       const profile = profiles[i]?.exists ? profiles[i].data() : {};
       return {
         uid: user.uid, email: user.email || '', displayName: profile.displayName || user.displayName || 'Redcover Reader',
-        username: profile.username || '', photoURL: profile.photoURL || user.photoURL || '',
+        username: profile.username || '', photoURL: redactStorageTokens({ photoURL: profile.photoURL || user.photoURL || '' }).photoURL,
         createdAt: user.metadata.creationTime || '', lastSignInAt: user.metadata.lastSignInTime || '',
         disabled: Boolean(user.disabled), membershipPlan: profile.membershipPlan || 'free',
         hqRole: user.customClaims?.hqRole || null, booksCount: Number(profile.booksCount || 0),
@@ -217,7 +365,7 @@ exports.hqGetUserDetails = onCall({ region: 'us-central1' }, async (request) => 
   const profile = profileSnap.exists ? profileSnap.data() : {};
   const asIso = (doc) => doc.get('createdAt')?.toDate?.().toISOString() || '';
   return {
-    user: { uid, email: user.email || '', displayName: profile.displayName || user.displayName || '', username: profile.username || '', photoURL: profile.photoURL || user.photoURL || '', createdAt: user.metadata.creationTime || '', lastSignInAt: user.metadata.lastSignInTime || '', disabled: Boolean(user.disabled), membershipPlan: profile.membershipPlan || 'free', hqRole: user.customClaims?.hqRole || null, restrictions: (await db.collection('hqAccountControls').doc(uid).get()).get('restrictions') || [] },
+    user: { uid, email: user.email || '', displayName: profile.displayName || user.displayName || '', username: profile.username || '', photoURL: redactStorageTokens({ photoURL: profile.photoURL || user.photoURL || '' }).photoURL, createdAt: user.metadata.creationTime || '', lastSignInAt: user.metadata.lastSignInTime || '', disabled: Boolean(user.disabled), membershipPlan: profile.membershipPlan || 'free', hqRole: user.customClaims?.hqRole || null, restrictions: (await db.collection('hqAccountControls').doc(uid).get()).get('restrictions') || [] },
     books: (booksSnap?.docs || []).map((doc) => ({ id: doc.id, title: safeText(doc.get('title'), 200), status: safeText(doc.get('status'), 30), createdAt: asIso(doc) })),
     posts: (postsSnap?.docs || []).map((doc) => ({ id: doc.id, text: safeText(doc.get('text'), 300), visibility: safeText(doc.get('visibility'), 30), createdAt: asIso(doc) })),
     reports: [...(reportedBy?.docs || []), ...(targets?.docs || [])].slice(0, 20).map((doc) => ({ id: doc.id, targetTitle: safeText(doc.get('targetTitle'), 200), reason: safeText(doc.get('reason'), 120), status: safeText(doc.get('status'), 30), createdAt: asIso(doc) })),
@@ -228,7 +376,7 @@ exports.hqGetUserDetails = onCall({ region: 'us-central1' }, async (request) => 
 exports.hqListStaff = onCall({ region: 'us-central1' }, async (request) => {
   await principal(request, 'staff:manage');
   const snap = await db.collection('hqStaff').orderBy('updatedAt', 'desc').limit(100).get();
-  return { staff: snap.docs.map((doc) => doc.data()) };
+  return { staff: snap.docs.map((doc) => redactStorageTokens(doc.data())) };
 });
 
 exports.hqSetStaffRole = onCall({ region: 'us-central1' }, async (request) => {
@@ -351,7 +499,9 @@ exports.hqListBooks = onCall({ region: 'us-central1' }, async (request) => {
   const pageSize = Math.min(50, Math.max(1, Number(request.data?.pageSize) || 25));
   if (search && /^[a-zA-Z0-9_\-]{4,128}$/.test(search)) {
     const exact = await db.collection('books').doc(search).get();
-    if (exact.exists) return { books: [{ id: exact.id, ...exact.data(), createdAt: exact.get('createdAt')?.toDate?.().toISOString() || '' }], nextPageToken: null };
+    if (exact.exists && (!['draft', 'published', 'pending', 'removed'].includes(status) || exact.get('status') === status)) {
+      return { books: [{ id: exact.id, ...redactStorageTokens(exact.data()), createdAt: exact.get('createdAt')?.toDate?.().toISOString() || '' }], nextPageToken: null };
+    }
   }
   if (search) {
     const [byTitle, byAuthor] = await Promise.all([
@@ -363,7 +513,7 @@ exports.hqListBooks = onCall({ region: 'us-central1' }, async (request) => {
       if (!status || !['draft', 'published', 'pending', 'removed'].includes(status) || d.get('status') === status) merged.set(d.id, d);
     });
     const docs = Array.from(merged.values()).slice(0, pageSize);
-    return { books: docs.map((d) => ({ id: d.id, ...d.data(), createdAt: d.get('createdAt')?.toDate?.().toISOString() || '' })), nextPageToken: null };
+    return { books: docs.map((d) => ({ id: d.id, ...redactStorageTokens(d.data()), createdAt: d.get('createdAt')?.toDate?.().toISOString() || '' })), nextPageToken: null };
   }
   let query = db.collection('books').orderBy('createdAt', 'desc');
   if (['draft', 'published', 'pending', 'removed'].includes(status)) query = db.collection('books').where('status', '==', status).orderBy('createdAt', 'desc');
@@ -372,7 +522,7 @@ exports.hqListBooks = onCall({ region: 'us-central1' }, async (request) => {
     if (cursor.exists) query = query.startAfter(cursor);
   }
   const snap = await query.limit(pageSize).get();
-  return { books: snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: d.get('createdAt')?.toDate?.().toISOString() || '' })), nextPageToken: snap.size === pageSize ? snap.docs[snap.size - 1].id : null };
+  return { books: snap.docs.map((d) => ({ id: d.id, ...redactStorageTokens(d.data()), createdAt: d.get('createdAt')?.toDate?.().toISOString() || '' })), nextPageToken: snap.size === pageSize ? snap.docs[snap.size - 1].id : null };
 });
 
 exports.hqUpdateBookStatus = onCall({ region: 'us-central1' }, async (request) => {
@@ -384,6 +534,10 @@ exports.hqUpdateBookStatus = onCall({ region: 'us-central1' }, async (request) =
   const snap = await ref.get();
   if (!snap.exists) fail('not-found', 'Book not found.');
   const book = snap.data();
+  if (status === 'published' && !actor.isOwner) {
+    const platform = await db.collection('hqConfig').doc('platform').get();
+    if (platform.get('allowBookPublishing') === false) fail('failed-precondition', 'Book publishing is paused by the owner.');
+  }
   if (status === 'published') {
     if (!String(book.title || '').trim() || !String(book.description || '').trim()) fail('failed-precondition', 'A title and synopsis are required before publishing.');
     const modes = Array.isArray(book.availableModes) ? book.availableModes : [];
@@ -469,32 +623,36 @@ exports.hqGetAuditLogs = onCall({ region: 'us-central1' }, async (request) => {
   return { entries: snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: d.get('createdAt')?.toDate?.().toISOString() || '' })) };
 });
 
-exports.hqReportClientEvent = onCall({ region: 'us-central1', enforceAppCheck: false }, async (request) => {
-  if (!request.auth?.uid) fail('unauthenticated', 'Sign in to report this operation.');
-  const uid = request.auth.uid;
-  const now = Date.now();
-  const rateRef = db.collection('hqRateLimits').doc(uid);
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(rateRef);
-    const old = snap.exists ? snap.data() : {};
-    const count = old.windowStart > now - 60000 ? Number(old.count || 0) + 1 : 1;
-    if (count > 40) fail('resource-exhausted', 'Too many diagnostic events.');
-    tx.set(rateRef, { windowStart: count === 1 ? now : old.windowStart, count, updatedAt: FieldValue.serverTimestamp() });
-  });
+exports.hqReportClientEvent = onCall({ region: 'us-central1' }, async (request) => {
+  const uid = request.auth?.uid || '';
   const severity = ['info', 'warning', 'critical'].includes(request.data?.severity) ? request.data.severity : 'warning';
   const service = ['auth', 'firestore', 'storage', 'realtimeDatabase', 'functions', 'network'].includes(request.data?.service) ? request.data.service : 'network';
   const category = safeText(request.data?.category, 50);
   const operation = safeText(request.data?.operation, 50);
+  const anonymousRuntime = !uid && service === 'functions' && category === 'frontend_runtime'
+    && ['uncaught_exception', 'unhandled_rejection'].includes(operation);
+  if (!uid && !anonymousRuntime) fail('unauthenticated', 'Sign in to report this operation.');
+  const now = Date.now();
+  const ip = request.rawRequest?.ip || 'unknown';
+  const anonymousKey = require('crypto').createHash('sha256').update(ip).digest('hex').slice(0, 32);
+  const rateRef = db.collection('hqRateLimits').doc(uid || `runtime_${anonymousKey}`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(rateRef);
+    const old = snap.exists ? snap.data() : {};
+    const count = old.windowStart > now - 60000 ? Number(old.count || 0) + 1 : 1;
+    if (count > (anonymousRuntime ? 5 : 40)) fail('resource-exhausted', 'Too many diagnostic events.');
+    tx.set(rateRef, { windowStart: count === 1 ? now : old.windowStart, count, updatedAt: FieldValue.serverTimestamp() });
+  });
   const errorCode = safeText(request.data?.errorCode, 100);
-  const message = safeText(request.data?.message, MAX_EVENT_MESSAGE);
+  const message = anonymousRuntime ? 'An uncaught browser runtime error occurred.' : safeText(request.data?.message, MAX_EVENT_MESSAGE);
   if (!category || !operation) fail('invalid-argument', 'Diagnostic category and operation are required.');
   // Allocate IDs server-side so a client cannot overwrite or spoof an existing event.
   const eventRef = db.collection('hqEvents').doc();
   const id = eventRef.id;
   await eventRef.create({
     id, service, category, operation, severity, errorCode, message,
-    actorUid: uid, relatedId: safeId(request.data?.relatedId), fileCategory: safeText(request.data?.fileCategory, 40),
-    fileName: safeText(request.data?.fileName, 100), storagePath: safeText(request.data?.storagePath, 200),
+    actorUid: uid || 'anonymous', relatedId: anonymousRuntime ? '' : safeId(request.data?.relatedId), fileCategory: anonymousRuntime ? '' : safeText(request.data?.fileCategory, 40),
+    fileName: anonymousRuntime ? '' : safeText(request.data?.fileName, 100), storagePath: anonymousRuntime ? '' : safeText(request.data?.storagePath, 200),
     retryStatus: operation === 'retry' ? 'attempted' : operation === 'completed' ? 'succeeded' : operation === 'failed' ? 'failed' : 'not_attempted',
     status: 'new', createdAt: FieldValue.serverTimestamp(),
   });
@@ -505,7 +663,7 @@ exports.hqScheduledHealthCheck = onSchedule({ schedule: 'every 15 minutes', regi
   const probes = await Promise.all([
     (async () => { try { await auth.listUsers(1); return ['auth', serviceHealth('healthy', 'Auth listUsers probe succeeded.')]; } catch (error) { return ['auth', serviceHealth('critical', safeText(error.code || error.message))]; } })(),
     (async () => { try { await count(db.collection('users')); return ['firestore', serviceHealth('healthy', 'Authorized user collection count succeeded.')]; } catch (error) { return ['firestore', serviceHealth('critical', safeText(error.code || error.message))]; } })(),
-    (async () => { try { await getStorage().bucket().getMetadata(); return ['storage', serviceHealth('healthy', 'Storage bucket metadata probe succeeded.')]; } catch (error) { return ['storage', serviceHealth('warning', safeText(error.code || error.message))]; } })(),
+    (async () => { try { await getStorage().bucket(STORAGE_BUCKET).getMetadata(); return ['storage', serviceHealth('healthy', 'Storage bucket metadata probe succeeded.')]; } catch (error) { return ['storage', serviceHealth('warning', safeText(error.code || error.message))]; } })(),
     (async () => { try { await getDatabase().ref('/status').limitToFirst(1).once('value'); return ['realtimeDatabase', serviceHealth('healthy', 'Realtime Database read probe succeeded.')]; } catch (error) { return ['realtimeDatabase', serviceHealth('warning', safeText(error.code || error.message))]; } })(),
   ]);
   const services = Object.fromEntries(probes);
@@ -531,7 +689,7 @@ exports.hqGetPlatformConfig = onCall({ region: 'us-central1' }, async (request) 
     db.collection('hqConfig').doc('platform').get(),
     db.collection('hqBrandCampaigns').orderBy('priority', 'desc').limit(50).get(),
   ]);
-  const campaigns = campaignSnap.docs.map((doc) => ({ id: doc.id, name: safeText(doc.get('name'), 80), startAt: doc.get('startAt'), endAt: doc.get('endAt'), priority: Number(doc.get('priority') || 0), logoUrl: safeText(doc.get('logoUrl'), 1000) }));
+  const campaigns = campaignSnap.docs.map((doc) => ({ id: doc.id, name: safeText(doc.get('name'), 80), startAt: doc.get('startAt'), endAt: doc.get('endAt'), priority: Number(doc.get('priority') || 0), logoUrl: safeBrandAssetUrl(doc.get('logoUrl')) }));
   const now = Date.now();
   const active = campaigns.filter((item) => Date.parse(item.startAt) <= now && Date.parse(item.endAt) > now).sort((a, b) => b.priority - a.priority)[0];
   return {
@@ -591,9 +749,9 @@ exports.hqUpdateBranding = onCall({ region: 'us-central1' }, async (request) => 
   const startAt = safeText(input.startAt, 30);
   const endAt = safeText(input.endAt, 30);
   const priority = Math.max(0, Math.min(100, Number(input.priority) || 0));
-  const logoUrl = safeText(input.logoUrl, 1000);
+  const logoUrl = safeBrandAssetUrl(input.logoUrl);
   if (!name || !Number.isFinite(Date.parse(startAt)) || !Number.isFinite(Date.parse(endAt)) || Date.parse(endAt) <= Date.parse(startAt)) fail('invalid-argument', 'Enter a name and valid campaign start/end dates.');
-  if (logoUrl && (!logoUrl.startsWith('https://') || !logoUrl.includes('firebasestorage.googleapis.com/v0/b/'))) fail('invalid-argument', 'Brand assets must use the Redcover public storage download URL.');
+  if (input.logoUrl && !logoUrl) fail('invalid-argument', 'Choose a valid Redcover Headquarters brand asset.');
   const data = { id, name, startAt, endAt, priority, logoUrl, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid, createdAt: previous.exists ? previous.get('createdAt') : FieldValue.serverTimestamp() };
   await ref.set(data, { merge: true });
   await writeAudit(actor, 'brand.campaign_saved', 'brandCampaign', id, previous.exists ? previous.data() : null, { name, startAt, endAt, priority, logoUrl: Boolean(logoUrl) });
@@ -618,7 +776,7 @@ exports.hqUploadBrandAsset = onCall({ region: 'us-central1', memory: '512MiB', t
   const ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' })[contentType];
   const path = `headquarters/branding/${id}/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${ext}`;
   const token = require('crypto').randomUUID();
-  const file = getStorage().bucket().file(path);
+  const file = getStorage().bucket(STORAGE_BUCKET).file(path);
   await file.save(buffer, { resumable: false, metadata: { contentType, cacheControl: 'public,max-age=31536000', metadata: { firebaseStorageDownloadTokens: token } } });
   const url = `https://firebasestorage.googleapis.com/v0/b/${file.bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
   await writeAudit(actor, 'brand.asset_uploaded', 'brandAsset', path, null, { contentType, size: buffer.length });
@@ -678,7 +836,7 @@ exports.hqListSupportTickets = onCall({ region: 'us-central1' }, async (request)
   })) };
 });
 
-exports.submitContactMessage = onCall({ region: 'us-central1', enforceAppCheck: false }, async (request) => {
+exports.submitContactMessage = onCall({ region: 'us-central1' }, async (request) => {
   const input = request.data || {};
   const name = safeText(input.name, 100);
   const email = safeText(input.email, 150).toLowerCase();

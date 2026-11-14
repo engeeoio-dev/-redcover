@@ -1,0 +1,65 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isOwnedUpload(objectName) {
+      return request.auth != null
+        && objectName.matches('^' + request.auth.uid + '_[0-9]{13}_[A-Za-z0-9._-]{1,64}$');
+    }
+
+    function validPdfUpload(objectName) {
+      return isOwnedUpload(objectName)
+        && objectName.matches('^' + request.auth.uid + '_[0-9]{13}_[A-Za-z0-9._-]{1,60}\\.pdf$')
+        && request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 25 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf';
+    }
+
+    function validImageUpload(objectName, maxBytes) {
+      return isOwnedUpload(objectName)
+        && request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= maxBytes
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    }
+
+    match /book_pdfs/{objectName} {
+      // PDFs are owner-private through Firebase SDK access. Reading can still use
+      // the existing Firebase download-token URL attached to a published book.
+      allow read: if isOwnedUpload(objectName)
+        && objectName.matches('^' + request.auth.uid + '_[0-9]{13}_[A-Za-z0-9._-]{1,60}\\.pdf$');
+      allow create, update: if validPdfUpload(objectName);
+    }
+
+    match /book_covers/{objectName} {
+      allow read: if isOwnedUpload(objectName);
+      allow create, update: if validImageUpload(objectName, 10 * 1024 * 1024);
+    }
+
+    match /profile_media/{objectName} {
+      allow read: if isOwnedUpload(objectName);
+      allow create, update: if validImageUpload(objectName, 10 * 1024 * 1024);
+    }
+
+    match /chat_attachments/{objectName} {
+      allow read: if isOwnedUpload(objectName);
+      allow create, update: if isOwnedUpload(objectName)
+        && request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 20 * 1024 * 1024
+        && request.resource.contentType in [
+          'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+          'application/pdf', 'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain', 'application/epub+zip', 'application/zip',
+          'audio/webm', 'audio/mp4', 'audio/ogg', 'audio/mpeg'
+        ];
+    }
+
+    // No client access to other Storage paths, including Headquarters assets.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

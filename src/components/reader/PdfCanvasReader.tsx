@@ -17,10 +17,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Chapter } from '../../models/types';
-import {
-  resolveFirebaseCoverUrl,
-  recoverFirebaseStorageUrlOnError,
-} from '../../services/firebase/storageService';
+import { getBookPdfAccessUrl } from '../../services/firebase/storageAccessService';
 
 try {
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -168,6 +165,7 @@ const LazyPdfPageCanvas: React.FC<SingleCanvasPageProps> = ({
 };
 
 export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
+  bookId,
   bookTitle,
   authorName,
   fileURL,
@@ -270,10 +268,9 @@ export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
       }
 
       try {
-        let resolvedUrl = fileURL;
-        if (!fileURL.startsWith('http://') && !fileURL.startsWith('https://') && !fileURL.startsWith('blob:')) {
-          resolvedUrl = await resolveFirebaseCoverUrl(fileURL);
-        }
+        let resolvedUrl = fileURL.startsWith('blob:')
+          ? fileURL
+          : await getBookPdfAccessUrl(bookId);
 
         const tryLoad = async (urlToLoad: string) => {
           activeTask = pdfjsLib.getDocument({
@@ -292,12 +289,11 @@ export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
         try {
           loadedDoc = await tryLoad(resolvedUrl);
         } catch (firstErr) {
-          const recovered = await recoverFirebaseStorageUrlOnError(resolvedUrl);
-          if (recovered) {
-            loadedDoc = await tryLoad(recovered);
-          } else {
-            throw firstErr;
-          }
+          // Signed URLs expire. Ask the server to re-check book access and mint
+          // a fresh URL once, instead of falling back to a persistent token URL.
+          resolvedUrl = await getBookPdfAccessUrl(bookId);
+          if (!resolvedUrl) throw firstErr;
+          loadedDoc = await tryLoad(resolvedUrl);
         }
 
         if (cancelled) return;
