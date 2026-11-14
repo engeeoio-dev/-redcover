@@ -2,7 +2,7 @@
   "name": "redcover-headquarters-functions",
   "private": true,
   "main": "index.js",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "scripts": { "lint": "node --check index.js && node --check storage-migration.js", "serve": "firebase emulators:start --only functions", "deploy": "firebase deploy --only functions", "provision-owner": "node provision-owner.js", "storage:report": "node storage-migration.js report", "storage:migrate": "node storage-migration.js apply", "storage:rollback": "node storage-migration.js rollback" },
   "dependencies": {
     "firebase-admin": "^13.4.0",
