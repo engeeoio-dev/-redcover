@@ -3271,21 +3271,29 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (options?.redCode) payload.redCode = String(options.redCode).slice(0, 12);
 
       try {
-        const batch = writeBatch(db);
-        batch.set(doc(db, 'chats', chat.id, 'messages', msgId), payload);
+        // Persist the message independently. A legacy chat summary with stale
+        // fields must not make a valid message write fail atomically with it.
+        await setDoc(doc(db, 'chats', chat.id, 'messages', msgId), payload);
         const isSenderA = chat.participantA === currentSenderUid;
-        batch.update(doc(db, 'chats', chat.id), {
-          lastMessage: previewText.slice(0, 1000),
-          lastSenderId: currentSenderUid,
-          unreadCountA: isSenderA ? 0 : increment(1),
-          unreadCountB: isSenderA ? increment(1) : 0,
-          hiddenFor: arrayRemove(receiverId),
-          updatedAt: serverTimestamp(),
-        });
-        await batch.commit();
+        try {
+          await updateDoc(doc(db, 'chats', chat.id), {
+            lastMessage: previewText.slice(0, 1000),
+            lastSenderId: currentSenderUid,
+            unreadCountA: isSenderA ? 0 : increment(1),
+            unreadCountB: isSenderA ? increment(1) : 0,
+            hiddenFor: arrayRemove(receiverId),
+            updatedAt: serverTimestamp(),
+          });
+        } catch (summaryError) {
+          // The message is already committed; treat summary/unread repair as a
+          // secondary failure and report it without claiming message delivery failed.
+          handleFirestoreError(summaryError, OperationType.UPDATE, `chats/${chat.id}`);
+          console.warn('Message sent; chat preview update failed:', (summaryError as { code?: string })?.code || 'unknown');
+        }
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, `chats/${chat.id}/messages/${msgId}`);
-        addToast('Message could not be sent. Check your chat rules or connection, then retry.', 'error');
+        const code = String((error as { code?: unknown } | null)?.code || 'unknown');
+        addToast(`Message could not be sent (${code}). Check your chat rules or connection, then retry.`, 'error');
         throw error;
       }
 

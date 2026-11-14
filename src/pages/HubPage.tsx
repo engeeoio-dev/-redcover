@@ -1013,7 +1013,6 @@ const AuthenticatedHubPage: React.FC<{
     } catch {
       setFailedMessageText(composedPayload);
       if (previousAttachment) setPendingAttachment(previousAttachment);
-      addToast('Failed to send message.', 'error');
     } finally {
       setSendingMessage(false);
     }
@@ -1526,7 +1525,12 @@ const AuthenticatedHubPage: React.FC<{
                     );
                   } catch (err) {
                     console.error('Chat send error:', err);
-                    addToast('Failed to deliver message. Please retry.', 'error');
+                    const cacheKey = `rc_chat_msgs_${activeChat.id}`;
+                    setMessages((prev) => {
+                      const rolledBack = prev.filter((message) => message.id !== stableMsgId);
+                      try { localStorage.setItem(cacheKey, JSON.stringify(rolledBack.slice(-100))); } catch {}
+                      return rolledBack;
+                    });
                   }
                 }}
                 partnerNickname={activePartner.nickname}
