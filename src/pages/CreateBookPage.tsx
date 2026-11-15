@@ -393,6 +393,16 @@ export const CreateBookPage: React.FC = () => {
     setSearchParams({});
   };
 
+  const openGraphicNovelUploadTab = () => {
+    resetBookForm('pdf');
+    setContentType('graphic_novel');
+    setAgeRating('all');
+    setAvailableModes(['pdf']);
+    setWorkspaceOpen(false);
+    setDashboardTab('upload');
+    setSearchParams({});
+  };
+
   const openCreateBookTab = () => {
     resetBookForm('story');
     setAvailableModes(['text', 'audio']);
@@ -1244,6 +1254,15 @@ export const CreateBookPage: React.FC = () => {
             >
               <Upload className="w-3.5 h-3.5" />
               <span>2. Upload Book</span>
+            </button>
+            <button
+              type="button"
+              onClick={openGraphicNovelUploadTab}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap inline-flex items-center gap-1.5 transition-colors cursor-pointer bg-[#202020] dark:bg-white text-white dark:text-black hover:bg-[#E43136] dark:hover:bg-[#E43136] dark:hover:text-white"
+              title="Start a new graphic novel PDF upload"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Upload Graphic Novel</span>
             </button>
           </nav>
         </header>
