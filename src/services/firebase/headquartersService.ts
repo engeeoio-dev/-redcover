@@ -12,6 +12,7 @@ export type HeadquartersRole =
 export interface HqMetric {
   available: boolean;
   value: number | null;
+  reason?: string;
 }
 
 export interface HqServiceHealth {
@@ -26,7 +27,6 @@ export interface HeadquartersOverview {
   ownerEmail?: string;
   metrics: Record<string, HqMetric>;
   services: Record<string, HqServiceHealth>;
-  integrations: Record<string, HqServiceHealth>;
 }
 
 export interface HqUser {

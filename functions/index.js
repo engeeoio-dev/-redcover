@@ -4,6 +4,7 @@ const { getFirestore, FieldPath, FieldValue, Timestamp } = require('firebase-adm
 const { getDatabase } = require('firebase-admin/database');
 const { getStorage } = require('firebase-admin/storage');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const logger = require('firebase-functions/logger');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { beforeUserCreated } = require('firebase-functions/v2/identity');
 const { setGlobalOptions } = require('firebase-functions/v2');
@@ -229,6 +230,7 @@ function serviceHealth(status, details, checkedAt = new Date().toISOString()) {
 }
 
 exports.hqGetOverview = onCall({ region: 'us-central1' }, async (request) => {
+  try {
   const actor = await principal(request, 'hq:overview');
   const now = Timestamp.now();
   const rangeDays = Math.min(90, Math.max(1, Number(request.data?.rangeDays) || 7));
@@ -248,7 +250,11 @@ exports.hqGetOverview = onCall({ region: 'us-central1' }, async (request) => {
   const checked = {};
   const metric = async (key, query) => {
     try { const value = await count(query); checked[key] = serviceHealth('healthy', 'Live count query succeeded.'); return { available: true, value }; }
-    catch (error) { checked[key] = serviceHealth('unknown', safeText(error.code || error.message)); return { available: false, value: null }; }
+    catch (error) {
+      const reason = safeText(error.code || error.message, 120) || 'Unknown Firestore count error';
+      checked[key] = serviceHealth('warning', reason);
+      return { available: false, value: null, reason };
+    }
   };
   const [registered, books, published, drafts, posts, comments, likes, follows, sessions, reports, openReports, premium, newUsersPeriod] = await Promise.all([
     metric('firestore', collections.users), metric('firestoreBooks', collections.books), metric('firestorePublished', collections.books.where('status', '==', 'published')),
@@ -285,14 +291,22 @@ exports.hqGetOverview = onCall({ region: 'us-central1' }, async (request) => {
       userProfiles: registered, books, publishedBooks: published, drafts, posts, comments, likes, followers: follows,
       readingSessions: sessions, reports, pendingModeration: openReports, premiumMemberships: premium,
       newUsersPeriod: newUsersPeriod,
-      activeUsers: { available: false, value: null }, storageBytes: { available: false, value: null },
-      billingEstimate: { available: false, value: null }, failedOperations24h: { available: failures24h !== null, value: failures24h },
+      failedOperations24h: { available: failures24h !== null, value: failures24h, ...(failures24h === null ? { reason: 'Could not read recent operation events.' } : {}) },
     },
     services: checked,
-    integrations: { cloudFunctions: serviceHealth('unknown', 'No separate scheduled or worker services are configured.'), cloudflare: serviceHealth('unknown', 'Cloudflare API credentials are not configured.') },
     ownerEmail: actor.isOwner ? OWNER_EMAIL : undefined,
     projectId: PROJECT_ID,
   };
+  } catch (error) {
+    const referenceId = require('crypto').randomUUID();
+    logger.error('Headquarters overview request failed', {
+      referenceId,
+      errorCode: safeText(error?.code, 80),
+      errorMessage: safeText(error?.message, 300),
+    });
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError('internal', 'The Headquarters overview could not load.', { referenceId });
+  }
 });
 
 exports.hqListUsers = onCall({ region: 'us-central1' }, async (request) => {

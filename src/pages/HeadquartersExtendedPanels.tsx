@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, AlertTriangle, BarChart3, Check, Cloud, Gem, ImagePlus, Loader2, Settings2, ShieldAlert, Ticket, Trash2, Upload } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Check, Gem, ImagePlus, Loader2, Settings2, ShieldAlert, Ticket, Trash2, Upload } from 'lucide-react';
 import {
   headquartersService,
   HqAnalyticsData,
@@ -11,6 +11,17 @@ import {
 } from '../services/firebase/headquartersService';
 
 const card = 'rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A]';
+
+function formatPanelError(error: unknown): string {
+  const value = error as { code?: string; message?: string } | null;
+  const code = String(value?.code || '').toLowerCase();
+  const message = String(value?.message || 'Headquarters data could not be loaded.');
+  if (code.includes('unauthenticated')) return 'Sign in again with the Google account that has owner access.';
+  if (code.includes('permission-denied')) return 'Owner access is missing from this login token. Sign out and back in, then retry.';
+  if (code.includes('functions/not-found')) return 'This Headquarters backend action is not deployed in the selected Firebase project.';
+  if (code.includes('functions/internal') || /^internal(?:\[0\])?$/i.test(message.trim())) return 'This request failed inside the Firebase backend. Check the matching function logs in Firebase Console.';
+  return message;
+}
 
 export const HeadquartersExtendedPanels: React.FC<{ activeTab: string; rangeDays: number; addToast: (message: string, type?: 'success' | 'error' | 'info') => void }> = ({ activeTab, rangeDays, addToast }) => {
   const [loading, setLoading] = useState(false);
@@ -45,7 +56,7 @@ export const HeadquartersExtendedPanels: React.FC<{ activeTab: string; rangeDays
       else if (activeTab === 'security') setSecurity((await headquartersService.listSecurityEvents()).events);
       else if (['posts', 'reviews', 'comments'].includes(activeTab)) setModerationItems((await headquartersService.listModerationContent(activeTab as HqModerationContent['kind'])).items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Headquarters data could not be loaded.');
+      setError(formatPanelError(err));
     } finally { setLoading(false); }
   }, [activeTab, rangeDays]);
 
@@ -55,7 +66,7 @@ export const HeadquartersExtendedPanels: React.FC<{ activeTab: string; rangeDays
     setBusy(true);
     setError('');
     try { await action(); addToast(message, 'success'); await reload(); }
-    catch (err) { setError(err instanceof Error ? err.message : 'The action failed.'); }
+    catch (err) { setError(formatPanelError(err)); }
     finally { setBusy(false); }
   };
 
@@ -71,14 +82,13 @@ export const HeadquartersExtendedPanels: React.FC<{ activeTab: string; rangeDays
       const title = key === 'users' ? 'New user profiles' : key === 'readingSessions' ? 'Reading sessions' : key === 'errors' ? 'Reported operation failures' : key[0].toUpperCase() + key.slice(1);
       return <section key={key} className={`${card} p-4`}><div className="flex items-start justify-between"><div><h3 className="text-sm font-semibold">{title}</h3><p className="text-[10px] text-[#777780] mt-1">{analytics?.completeness[key] === false ? 'First 1,000 records only' : `Daily counts · last ${rangeDays} days`}</p></div><span className="text-xl font-bold tabular-nums">{analytics ? count.toLocaleString() : '—'}</span></div><div className="mt-4 h-28 flex items-end gap-1 border-b border-[#DDDDE3] dark:border-[#33333D]" role="img" aria-label={`${title} daily counts`}>{days.length ? days.map((day) => <div key={day} title={`${day}: ${series[day]}`} className="flex-1 min-w-[2px] rounded-t bg-[#E43136]/75 hover:bg-[#E43136]" style={{ height: `${Math.max(3, series[day] / peak * 100)}%` }} />) : <p className="w-full pb-4 text-center text-[11px] text-[#8A8A94]">{loading ? 'Loading…' : 'No timestamped records in this period.'}</p>}</div><div className="mt-2 flex justify-between text-[9px] text-[#8A8A94]"><span>{days[0] || '—'}</span><span>{days.at(-1) || '—'}</span></div></section>;
     })}</div>
-    <div className={`${card} p-4 text-xs flex gap-2`}><Cloud className="w-4 h-4 shrink-0 text-[#E43136]" /><span>Billing, Cloudflare traffic, verified active-user analytics, country/device breakdown and long-term trends require external integrations or a historical aggregation pipeline. No estimated figures are shown as actuals.</span></div>
+    <p className="text-[10px] text-[#8A8A94]">These charts count Redcover records stored in Firebase for the selected period.</p>
   </div>;
 
   if (activeTab === 'membership') return <div className="space-y-4">
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700">{error}</div>}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3"><div className={`${card} p-5`}><div className="text-xs text-[#777780]">Premium profiles returned</div><div className="text-2xl font-bold mt-2">{memberships?.entries.length ?? '—'}</div></div><div className={`${card} p-5`}><div className="text-xs text-[#777780]">Revenue</div><div className="text-sm font-semibold mt-2">Unavailable</div></div><div className={`${card} p-5`}><div className="text-xs text-[#777780]">Payment verification</div><div className="text-sm font-semibold mt-2">Not configured</div></div></div>
-    <section className={`${card} overflow-hidden`}><div className="p-4 border-b border-[#EEEFF2] dark:border-[#2C2C35]"><h3 className="text-sm font-semibold">Membership profile records</h3><p className="text-[11px] text-[#777780] mt-1">Read-only. Paid access cannot be granted until a payment verification provider is integrated.</p></div><div className="divide-y divide-[#EEEFF2] dark:divide-[#2B2B34]">{memberships?.entries.map((entry) => <div key={entry.uid} className="p-4 flex flex-wrap items-center gap-3"><span className="text-sm font-semibold">{entry.displayName || entry.username || entry.uid}</span><span className="text-xs text-[#777780]">@{entry.username || '—'}</span><span className="ml-auto text-[10px] text-[#8A8A94]">{entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : 'Date unavailable'}</span></div>)}{!loading && !memberships?.entries.length && <div className="p-8 text-center text-xs text-[#8A8A94]">No premium profiles found.</div>}</div>{memberships?.truncated && <p className="p-3 text-center text-[10px] text-amber-700">Showing the first 100 memberships.</p>}</section>
-    <div className={`${card} p-4 text-xs`}>{memberships?.billing.reason || 'Billing details unavailable.'}</div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div className={`${card} p-5`}><div className="text-xs text-[#777780]">Premium profiles returned</div><div className="text-2xl font-bold mt-2">{memberships?.entries.length ?? '—'}</div></div><div className={`${card} p-5`}><div className="text-xs text-[#777780]">Record coverage</div><div className="text-sm font-semibold mt-2">{memberships?.truncated ? 'First 100 records' : 'All matching records'}</div></div></div>
+    <section className={`${card} overflow-hidden`}><div className="p-4 border-b border-[#EEEFF2] dark:border-[#2C2C35]"><h3 className="text-sm font-semibold">Membership profile records</h3><p className="text-[11px] text-[#777780] mt-1">Premium membership data currently stored on Redcover profiles.</p></div><div className="divide-y divide-[#EEEFF2] dark:divide-[#2B2B34]">{memberships?.entries.map((entry) => <div key={entry.uid} className="p-4 flex flex-wrap items-center gap-3"><span className="text-sm font-semibold">{entry.displayName || entry.username || entry.uid}</span><span className="text-xs text-[#777780]">@{entry.username || '—'}</span><span className="ml-auto text-[10px] text-[#8A8A94]">{entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : 'Date unavailable'}</span></div>)}{!loading && !memberships?.entries.length && <div className="p-8 text-center text-xs text-[#8A8A94]">No premium profiles found.</div>}</div>{memberships?.truncated && <p className="p-3 text-center text-[10px] text-amber-700">Showing the first 100 memberships.</p>}</section>
   </div>;
 
   if (activeTab === 'brand') return <div className="space-y-4">

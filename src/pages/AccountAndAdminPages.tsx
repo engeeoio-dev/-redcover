@@ -39,7 +39,6 @@ import {
   HardDrive,
   Cloud,
   ShieldCheck,
-  Info,
   BarChart3,
   Gem,
   ImagePlus,
@@ -53,9 +52,24 @@ import { db, FIREBASE_PROJECT_INFO } from '../services/firebase/firebaseConfig';
 import { uploadFileToRedcoverStorage } from '../services/firebase/storageService';
 import { ImageCropModal } from '../components/common/ImageCropModal';
 import { BookCard, BookCover, EmptyState, UserAvatar } from '../components/common/UIPrimitives';
-import { headquartersService, HeadquartersOverview, HeadquartersRole, HqAuditEntry, HqBook, HqEvent, HqReport, HqServiceHealth, HqStaff, HqUser } from '../services/firebase/headquartersService';
+import { headquartersService, HeadquartersOverview, HeadquartersRole, HqAuditEntry, HqBook, HqEvent, HqReport, HqStaff, HqUser } from '../services/firebase/headquartersService';
 import { HeadquartersExtendedPanels } from './HeadquartersExtendedPanels';
 import { HqUserDetailsModal } from './HqUserDetailsModal';
+
+function formatHeadquartersError(error: any): string {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || 'Headquarters data could not be loaded.');
+  const details = error?.details;
+  const referenceId = details && typeof details === 'object' ? String(details.referenceId || '') : '';
+  if (code.includes('unauthenticated')) return 'Sign in again with the Google account that has owner access.';
+  if (code.includes('permission-denied')) return 'This account is signed in, but its owner access token is missing or expired. Sign out and back in, then refresh access status.';
+  if (code.includes('app-check')) return 'Firebase App Check rejected this request. Verify the production site key and App Check setup.';
+  if (code.includes('functions/not-found')) return 'The Headquarters backend is not deployed in this Firebase project yet.';
+  if (code.includes('functions/internal') || /^internal(?:\[0\])?$/i.test(message.trim())) {
+    return `The Headquarters request failed inside the Firebase backend. Check Firebase Console → Functions → Logs for hqGetOverview in us-central1${referenceId ? ` (reference ${referenceId})` : ''}.`;
+  }
+  return message;
+}
 
 export const ProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -1067,7 +1081,7 @@ export const AdminPage: React.FC = () => {
           if (!cancelled) setAuditEntries(result.entries);
         }
       } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Headquarters data could not be loaded.');
+        if (!cancelled) setError(formatHeadquartersError(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1098,7 +1112,7 @@ export const AdminPage: React.FC = () => {
         setOverview(await headquartersService.getOverview(rangeDays, customStart || undefined, customEnd || undefined));
       }
     } catch (err: any) {
-      const message = String(err?.message || 'Action failed.');
+      const message = formatHeadquartersError(err);
       setError(message.includes('functions/not-found') ? 'Headquarters backend is not deployed yet. Deploy the project functions and security rules first.' : message);
     } finally {
       setBusyId('');
@@ -1111,7 +1125,7 @@ export const AdminPage: React.FC = () => {
     try {
       const result = await headquartersService.listUsers(userSearchDebounced, userPageToken, { status: userStatusFilter, role: userRoleFilter, membershipPlan: userPlanFilter, createdFrom: userCreatedFrom, createdTo: userCreatedTo });
       setUsers((old) => [...old, ...result.users]); setUserPageToken(result.nextPageToken);
-    } catch (err: any) { setError(err?.message || 'More users could not be loaded.'); }
+    } catch (err: any) { setError(formatHeadquartersError(err)); }
     finally { setBusyId(''); }
   };
 
@@ -1121,7 +1135,7 @@ export const AdminPage: React.FC = () => {
     try {
       const result = await headquartersService.listBooks('', bookStatus, bookPageToken);
       setBooks((old) => [...old, ...result.books]); setBookPageToken(result.nextPageToken);
-    } catch (err: any) { setError(err?.message || 'More books could not be loaded.'); }
+    } catch (err: any) { setError(formatHeadquartersError(err)); }
     finally { setBusyId(''); }
   };
 
@@ -1145,10 +1159,10 @@ export const AdminPage: React.FC = () => {
   }
 
   const metricLabels: Record<string, string> = {
-    userProfiles: 'User profiles', books: 'All books', publishedBooks: 'Published books', drafts: 'Drafts', posts: 'Public posts', comments: 'Comments', likes: 'Likes', followers: 'Followers', readingSessions: 'Reading sessions', reports: 'Reports', pendingModeration: 'Pending moderation', premiumMemberships: 'Premium memberships', newUsersPeriod: 'New registrations', failedOperations24h: 'Failures · 24h', activeUsers: 'Active users', storageBytes: 'Storage use', billingEstimate: 'Monthly cost estimate',
+    userProfiles: 'User profiles', books: 'All books', publishedBooks: 'Published books', drafts: 'Drafts', posts: 'Public posts', comments: 'Comments', likes: 'Likes', followers: 'Followers', readingSessions: 'Reading sessions', reports: 'Reports', pendingModeration: 'Pending moderation', premiumMemberships: 'Premium memberships', newUsersPeriod: 'New registrations', failedOperations24h: 'Failed operations · 24h',
   };
-  const healthLabel = (name: string) => ({ auth: 'Authentication', firestore: 'Cloud Firestore', storage: 'Cloud Storage', realtimeDatabase: 'Realtime Database', functions: 'Cloud Functions', appCheck: 'App Check', cloudFunctions: 'Scheduled / worker services', cloudflare: 'Cloudflare' } as Record<string, string>)[name] || name;
-  const metricValue = (metric?: { available: boolean; value: number | null }) => metric?.available && metric.value !== null ? metric.value.toLocaleString() : 'Unavailable';
+  const healthLabel = (name: string) => ({ auth: 'Authentication', firestore: 'Cloud Firestore', storage: 'Cloud Storage', realtimeDatabase: 'Realtime Database', functions: 'Cloud Functions', appCheck: 'App Check' } as Record<string, string>)[name] || name;
+  const metricValue = (metric?: { available: boolean; value: number | null }) => !metric ? '—' : metric.available && metric.value !== null ? metric.value.toLocaleString() : 'Load error';
   const healthColor = (status: string) => status === 'healthy' ? 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20' : status === 'critical' ? 'text-red-600 bg-red-500/10 border-red-500/20' : status === 'warning' ? 'text-amber-600 bg-amber-500/10 border-amber-500/20' : 'text-[#777780] bg-black/5 border-black/10 dark:bg-white/5 dark:border-white/10';
   const roleLabel = (role: string) => role.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
@@ -1192,21 +1206,20 @@ export const AdminPage: React.FC = () => {
               <span className="ml-auto text-[10px] text-[#8A8A94]">Updated {overview?.generatedAt ? new Date(overview.generatedAt).toLocaleTimeString() : '—'}</span>
             </section>
             <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-              {Object.entries(metricLabels).map(([key, label]) => (
-                <div key={key} className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4">
-                  <div className="text-[11px] text-[#777780] min-h-8">{label}</div><div className="text-xl sm:text-2xl font-bold tabular-nums mt-1">{metricValue(overview?.metrics[key])}</div>
-                </div>
-              ))}
+              {Object.entries(metricLabels).map(([key, label]) => {
+                const metric = overview?.metrics[key];
+                return <div key={key} className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4">
+                  <div className="text-[11px] text-[#777780] min-h-8">{label}</div><div className="text-xl sm:text-2xl font-bold tabular-nums mt-1">{metricValue(metric)}</div>{metric?.reason && <div className="mt-2 text-[10px] text-amber-700 dark:text-amber-300" title={metric.reason}>Could not read this count: {metric.reason}</div>}
+                </div>;
+              })}
             </section>
-            <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {[['services', overview?.services || {}], ['integrations', overview?.integrations || {}]].map(([group, entries]) => (
-                <div key={String(group)} className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4 sm:p-5">
-                  <h3 className="font-semibold text-sm mb-3">{group === 'services' ? 'Platform services' : 'Integrations'}</h3>
-                  <div className="space-y-2">{Object.entries(entries as Record<string, HqServiceHealth>).map(([name, health]) => <div key={name} className="rounded-xl border border-[#EEEFF2] dark:border-[#2B2B34] p-3 flex items-start gap-3"><span className={"mt-0.5 rounded-full border px-2 py-1 text-[9px] uppercase font-bold " + healthColor(health.status)}>{health.status}</span><div className="min-w-0"><div className="text-xs font-semibold">{healthLabel(name)}</div><p className="text-[11px] text-[#777780] mt-0.5">{health.details}</p></div></div>)}</div>
-                </div>
-              ))}
+            <section className="rounded-2xl border border-[#DDDDE3] dark:border-[#2C2C35] bg-white dark:bg-[#15151A] p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div><h3 className="font-semibold text-sm">Firebase connection status</h3><p className="text-[11px] text-[#777780] mt-1">Checks used by Redcover’s existing app data.</p></div>
+                <span className="text-[10px] text-[#8A8A94]">Project {overview?.projectId || '—'}</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">{Object.entries(overview?.services || {}).filter(([name]) => ['auth', 'firestore', 'storage', 'realtimeDatabase', 'functions', 'appCheck'].includes(name)).map(([name, health]) => <div key={name} className="rounded-xl border border-[#EEEFF2] dark:border-[#2B2B34] p-3 flex items-start gap-3"><span className={"mt-0.5 rounded-full border px-2 py-1 text-[9px] uppercase font-bold " + healthColor(health.status)}>{health.status}</span><div className="min-w-0"><div className="text-xs font-semibold">{healthLabel(name)}</div><p className="text-[11px] text-[#777780] mt-0.5">{health.details}</p></div></div>)}</div>
             </section>
-            <div className="rounded-xl border border-sky-300/60 bg-sky-50 dark:bg-sky-950/20 dark:border-sky-900/40 p-4 text-xs text-sky-900 dark:text-sky-200 flex gap-2"><Info className="w-4 h-4 shrink-0" /><span>Billing cost, storage byte totals, active-user analytics and daily trend charts are marked unavailable until the matching Billing/Analytics integrations or historical aggregation are enabled. No placeholder figures are shown.</span></div>
           </div>
         )}
 
