@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions';
-import { functions } from './firebaseConfig';
+import { auth, functions } from './firebaseConfig';
 
 export type HeadquartersRole =
   | 'owner'
@@ -128,8 +128,28 @@ export interface HqModerationContent { id: string; kind: 'posts' | 'reviews' | '
 export interface HqUserDetails { user: HqUser & { restrictions: string[] }; books: Array<{ id: string; title: string; status: string; createdAt: string }>; posts: Array<{ id: string; text: string; visibility: string; createdAt: string }>; reports: Array<{ id: string; targetTitle: string; reason: string; status: string; createdAt: string }>; activity: Array<{ id: string; action: string; result: string; createdAt: string }>; }
 
 async function call<T>(name: string, data: Record<string, unknown> = {}): Promise<T> {
-  const result = await httpsCallable<Record<string, unknown>, T>(functions, name)(data);
-  return result.data;
+  const user = auth.currentUser;
+  if (!user) {
+    const error = new Error('Sign in with the owner account before opening Headquarters.') as Error & { code: string };
+    error.code = 'functions/unauthenticated';
+    throw error;
+  }
+  // Resolve a valid Firebase ID token before invoking the callable. The callable
+  // SDK attaches this user's token automatically; this also avoids firing while
+  // the auth state is still settling after sign-in or a page refresh.
+  await user.getIdToken();
+  const invoke = httpsCallable<Record<string, unknown>, T>(functions, name);
+  try {
+    const result = await invoke(data);
+    return result.data;
+  } catch (error) {
+    if ((error as { code?: string })?.code !== 'functions/unauthenticated') throw error;
+    // One forced refresh handles a stale/invalid ID token without asking the
+    // owner to repeatedly sign out and back in.
+    await user.getIdToken(true);
+    const retry = await invoke(data);
+    return retry.data;
+  }
 }
 
 export const headquartersService = {
