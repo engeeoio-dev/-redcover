@@ -45,7 +45,7 @@ import {
   Headphones,
 } from 'lucide-react';
 import { useRedcover } from '../contexts/RedcoverContext';
-import { Book, BookFormat, BookReadingMode, REDCOVER_CATEGORIES } from '../models/types';
+import { Book, BookAgeRating, BookContentType, BookFormat, BookReadingMode, REDCOVER_CATEGORIES } from '../models/types';
 import { uploadFileToRedcoverStorage } from '../services/firebase/storageService';
 import { extractPdfTextAndCoverFromFile } from '../services/pdf/pdfExtractor';
 import { ImageCropModal } from '../components/common/ImageCropModal';
@@ -128,6 +128,10 @@ export const CreateBookPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<string>(STUDIO_CATEGORIES[0] || 'Fiction');
   const [format, setFormat] = useState<BookFormat>('story');
+  const [contentType, setContentType] = useState<BookContentType>('standard');
+  const [ageRating, setAgeRating] = useState<BookAgeRating>('all');
+  const [seriesTitle, setSeriesTitle] = useState('');
+  const [episodeNumber, setEpisodeNumber] = useState(1);
   const [availableModes, setAvailableModes] = useState<BookReadingMode[]>(['text', 'audio']);
   const [language, setLanguage] = useState('English');
   const [coverURL, setCoverURL] = useState('');
@@ -271,6 +275,10 @@ export const CreateBookPage: React.FC = () => {
     setDescription(found.description || '');
     setCategory(found.category || STUDIO_CATEGORIES[0] || 'Fiction');
     setFormat(found.format || 'story');
+    setContentType(found.contentType || 'standard');
+    setAgeRating(found.ageRating || 'all');
+    setSeriesTitle(found.seriesTitle || '');
+    setEpisodeNumber(found.episodeNumber || 1);
     setAvailableModes(
       found.availableModes || (found.format === 'pdf' ? ['pdf', 'text', 'audio'] : ['text', 'audio'])
     );
@@ -341,6 +349,10 @@ export const CreateBookPage: React.FC = () => {
     setDescription('');
     setCategory(STUDIO_CATEGORIES[0] || 'Fiction');
     setFormat(initialFormat);
+    setContentType('standard');
+    setAgeRating('all');
+    setSeriesTitle('');
+    setEpisodeNumber(1);
     setAvailableModes(initialFormat === 'pdf' ? [] : ['text', 'audio']);
     setLanguage('English');
     setCoverURL('');
@@ -950,6 +962,10 @@ export const CreateBookPage: React.FC = () => {
           coverURL: savedCoverURL.trim(),
           fileURL: availableModes.includes('pdf') ? savedFileURL : '',
           format,
+          contentType,
+          ageRating,
+          seriesTitle: contentType === 'graphic_novel' ? seriesTitle.trim() : '',
+          episodeNumber: contentType === 'graphic_novel' ? episodeNumber : 1,
           availableModes,
           category,
           language,
@@ -1436,6 +1452,33 @@ export const CreateBookPage: React.FC = () => {
                 </div>
               )}
 
+              <section className="rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] p-4 space-y-3" aria-labelledby="upload-content-type">
+                <h3 id="upload-content-type" className="text-xs font-bold text-[#202020] dark:text-[#F4F4F6]">What are you uploading?</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setContentType('standard'); setAvailableModes([]); }} className={`rounded-lg border p-3 text-left text-xs ${contentType === 'standard' ? 'border-[#E43136] bg-[#FFF3F4] dark:bg-[#2D1619]' : 'border-[#DDDDE3] dark:border-[#2C2C35]'}`}>
+                    <span className="block font-semibold">Regular book</span><span className="mt-1 block text-[11px] text-[#777780]">PDF, extracted text, or audio formats</span>
+                  </button>
+                  <button type="button" onClick={() => { setContentType('graphic_novel'); setFormat('pdf'); setAvailableModes(['pdf']); }} className={`rounded-lg border p-3 text-left text-xs ${contentType === 'graphic_novel' ? 'border-[#E43136] bg-[#FFF3F4] dark:bg-[#2D1619]' : 'border-[#DDDDE3] dark:border-[#2C2C35]'}`}>
+                    <span className="block font-semibold">Graphic novel / visual comic</span><span className="mt-1 block text-[11px] text-[#777780]">Keep the uploaded PDF’s original page artwork and layout</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="text-[11px] font-semibold">Age rating
+                    <select value={ageRating} onChange={(e) => setAgeRating(e.target.value as BookAgeRating)} className="mt-1 w-full rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent px-3 py-2 text-xs">
+                      <option value="all">All ages</option><option value="12+">12+</option><option value="16+">16+</option><option value="18+">Adults only (18+)</option>
+                    </select>
+                  </label>
+                  {contentType === 'graphic_novel' && <div className="grid grid-cols-[1fr_100px] gap-2">
+                    <label className="text-[11px] font-semibold">Series / collection (optional)
+                      <input value={seriesTitle} onChange={(e) => setSeriesTitle(e.target.value)} maxLength={120} placeholder="Series name" className="mt-1 w-full rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent px-3 py-2 text-xs" />
+                    </label>
+                    <label className="text-[11px] font-semibold">Episode / part
+                      <input type="number" min={1} max={9999} value={episodeNumber} onChange={(e) => setEpisodeNumber(Math.max(1, Number(e.target.value) || 1))} className="mt-1 w-full rounded-lg border border-[#DDDDE3] dark:border-[#33333D] bg-transparent px-3 py-2 text-xs" />
+                    </label>
+                  </div>}
+                </div>
+              </section>
+
               <fieldset className="space-y-2">
                 <legend className="text-xs font-bold text-[#202020] dark:text-[#F4F4F6]">
                   Choose reader formats
@@ -1457,7 +1500,7 @@ export const CreateBookPage: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={availableModes.includes(option.mode)}
-                        disabled={uploadingPdf || extractingPdf || Boolean(pdfFileName)}
+                        disabled={uploadingPdf || extractingPdf || Boolean(pdfFileName) || (contentType === 'graphic_novel' && option.mode !== 'pdf')}
                         onChange={(event) => {
                           setAvailableModes((current) =>
                             event.target.checked

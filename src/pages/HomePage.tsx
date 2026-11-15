@@ -51,7 +51,6 @@ export const HomePage: React.FC = () => {
     reviews,
     booksLoading,
     savedBooks,
-    likedBooks,
     readingProgress,
     publicReadingProgress,
     socialPosts,
@@ -504,16 +503,6 @@ export const HomePage: React.FC = () => {
       .slice(0, 5);
   }, [books, firebaseUser?.uid, readingProgress]);
 
-  const myLikedBooks = useMemo(() => {
-    if (!firebaseUser) return [];
-    return likedBooks
-      .filter((like) => like.userId === firebaseUser.uid)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .map((like) => books.find((book) => book.id === like.bookId))
-      .filter((book): book is Book => Boolean(book))
-      .slice(0, 5);
-  }, [books, firebaseUser?.uid, likedBooks]);
-
   // If visitor is logged out, render the professional Redcover Public Landing Page
   if (!firebaseUser) {
     return <PublicLandingPage />;
@@ -564,47 +553,6 @@ export const HomePage: React.FC = () => {
               )}
             </section>
 
-            <section
-              aria-label="Liked books"
-              className="rounded-xl border border-[#DDDDE3] bg-white p-3 dark:border-[#2C2C35] dark:bg-[#16161A] sm:rounded-2xl sm:p-4"
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-sm font-bold text-[#202020] dark:text-[#F4F4F6]">Liked Books</h2>
-                {currentUser && (
-                  <Link
-                    to={`/profile/${currentUser.uid}?tab=likes`}
-                    className="shrink-0 text-xs font-semibold text-[#E43136] hover:underline"
-                  >
-                    More
-                  </Link>
-                )}
-              </div>
-              {myLikedBooks.length > 0 ? (
-                <div className="flex snap-x gap-3 overflow-x-auto pb-1 no-scrollbar">
-                  {myLikedBooks.map((book) => (
-                    <Link
-                      key={book.id}
-                      to={`/book/${book.id}`}
-                      className="w-28 shrink-0 snap-start sm:w-32"
-                    >
-                      <div className="mb-2 aspect-[3/4] overflow-hidden rounded-lg">
-                        <BookCover book={book} size="sm" className="h-full w-full" />
-                      </div>
-                      <p className="truncate text-xs font-semibold text-[#202020] dark:text-[#F4F4F6]">
-                        {book.title}
-                      </p>
-                      <p className="truncate text-[11px] text-[#777780] dark:text-[#9E9EA9]">
-                        {book.authorName}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <p className="py-4 text-center text-xs text-[#777780] dark:text-[#9E9EA9]">
-                  Books you like will appear here.
-                </p>
-              )}
-            </section>
           </>
         )}
 

@@ -47,7 +47,8 @@ try {
 export const rtdb = rtdbInstance;
 
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+googleProvider.addScope('https://www.googleapis.com/auth/user.birthday.read');
+googleProvider.setCustomParameters({ prompt: 'select_account consent' });
 
 export const FIREBASE_PROJECT_INFO = {
   projectId: firebaseConfig.projectId,

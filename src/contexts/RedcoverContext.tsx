@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   User as FirebaseUser,
+  GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -29,6 +30,7 @@ import {
 import { ref as rtdbRef, onValue } from 'firebase/database';
 import { auth, db, defaultDb, rtdb, googleProvider } from '../services/firebase/firebaseConfig';
 import { handleFirestoreError, OperationType } from '../services/firebase/errorHandler';
+import { verifyGoogleAccountAge } from '../services/firebase/ageVerificationService';
 import {
   encodeCommentReplyText,
   normalizeBookDoc,
@@ -1595,8 +1597,20 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const loginWithGoogle = useCallback(async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
-      addToast('Connected to your Redcover account!', 'success');
+      const result = await signInWithPopup(auth, googleProvider);
+      const googleCredential = GoogleAuthProvider.credentialFromResult(result);
+      if (googleCredential?.accessToken) {
+        try {
+          await verifyGoogleAccountAge(googleCredential.accessToken);
+          await result.user.getIdToken(true);
+          addToast('Connected to Redcover. Google age verified.', 'success');
+        } catch (ageError) {
+          console.warn('Google age verification unavailable:', ageError);
+          addToast('Signed in. Verify your Google birthday before opening age-restricted graphic novels.', 'info');
+        }
+      } else {
+        addToast('Signed in. Google did not grant birthday access; age-restricted graphic novels stay locked.', 'info');
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Google Sign-In failed.';
       addToast(msg, 'error');
@@ -2331,6 +2345,15 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           coverURL: bookInput.coverURL && bookInput.coverURL.length <= 5000 ? bookInput.coverURL : '',
           fileURL: bookInput.fileURL && bookInput.fileURL.length <= 5000 ? bookInput.fileURL : '',
           format: bookInput.format === 'pdf' ? ('pdf' as const) : ('story' as const),
+          contentType: bookInput.contentType === 'graphic_novel' ? 'graphic_novel' : 'standard',
+          ageRating: ['all', '12+', '16+', '18+'].includes(String(bookInput.ageRating)) ? bookInput.ageRating : 'all',
+          ...(bookInput.contentType === 'graphic_novel' && bookInput.seriesTitle?.trim()
+            ? {
+                seriesTitle: bookInput.seriesTitle.trim().slice(0, 120),
+                seriesId: sanitizeId(bookInput.seriesTitle.trim().toLowerCase(), 'series'),
+                episodeNumber: Math.max(1, Math.min(9999, Math.round(Number(bookInput.episodeNumber) || 1))),
+              }
+            : {}),
           availableModes: bookInput.availableModes,
           category: safeCategory,
           language: safeLanguage,
@@ -2467,9 +2490,8 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         );
         return bookId;
       } catch (error) {
-        addToast('Could not upload your book. Check your account access and file details, then try again.', 'error');
         handleFirestoreError(error, OperationType.WRITE, `books/${bookId}`);
-        return bookId;
+        throw error;
       }
     },
     [firebaseUser, currentUser, ensureUserProfile, addToast]
@@ -2915,7 +2937,14 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const blockUser = useCallback(
     async (targetUser: UserProfile) => {
       if (!firebaseUser || !currentUser) return;
-      const friendshipId = `${firebaseUser.uid}_${targetUser.uid}`;
+      // Reuse an existing relationship in either direction. Friendship IDs are
+      // directional, so always constructing uid_targetUid can leave an older
+      // accepted/request record active when the other user created it first.
+      const existingRelationship = friendships.find((relationship) =>
+        (relationship.requesterId === firebaseUser.uid && relationship.receiverId === targetUser.uid) ||
+        (relationship.requesterId === targetUser.uid && relationship.receiverId === firebaseUser.uid)
+      );
+      const friendshipId = existingRelationship?.id || `${firebaseUser.uid}_${targetUser.uid}`;
       try {
         await ensureTargetUserInFirestore(targetUser);
         const snap = await getDoc(doc(db, 'friendships', friendshipId));
@@ -2941,9 +2970,10 @@ export const RedcoverProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         addToast(`Blocked ${targetUser.displayName}.`, 'info');
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, `friendships/${friendshipId}`);
+        addToast(`Could not block ${targetUser.displayName}. Please check your connection and try again.`, 'error');
       }
     },
-    [firebaseUser, currentUser, ensureTargetUserInFirestore, addToast]
+    [firebaseUser, currentUser, friendships, ensureTargetUserInFirestore, addToast]
   );
 
   const isFriend = useCallback(

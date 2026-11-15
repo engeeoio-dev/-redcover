@@ -10,7 +10,7 @@ import {
 } from '../../services/firebase/storageService';
 
 export interface BookCoverProps {
-  book?: (Pick<Book, 'id' | 'title' | 'authorName' | 'coverURL' | 'category'> & {
+  book?: (Pick<Book, 'id' | 'title' | 'authorName' | 'coverURL' | 'category'> & Partial<Pick<Book, 'createdAt' | 'contentType' | 'ageRating'>> & {
     format?: Book['format'];
     fileURL?: string;
   }) | null;
@@ -19,6 +19,20 @@ export interface BookCoverProps {
   className?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg';
 }
+
+const BookCoverBadges: React.FC<{ book: BookCoverProps['book'] }> = ({ book }) => {
+  const createdAt = book?.createdAt ? new Date(book.createdAt).getTime() : NaN;
+  const isNew = Number.isFinite(createdAt) && Date.now() >= createdAt && Date.now() - createdAt < 7 * 24 * 60 * 60 * 1000;
+  const rating = book?.ageRating || 'all';
+  const ratingLabel = rating === '18+' ? '18+' : rating === 'all' ? 'ALL AGES' : rating;
+  return (
+    <div className="absolute top-2 left-2 z-20 flex flex-wrap gap-1 pointer-events-none">
+      {isNew && <span className="rounded bg-[#E43136] px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide text-white shadow">NEW</span>}
+      {book?.contentType === 'graphic_novel' && <span className="rounded bg-black/75 px-1.5 py-0.5 text-[8px] font-bold text-white shadow">GRAPHIC</span>}
+      <span className="rounded bg-black/75 px-1.5 py-0.5 text-[8px] font-bold text-white shadow">{ratingLabel}</span>
+    </div>
+  );
+};
 
 export const BookCover: React.FC<BookCoverProps> = ({
   book,
@@ -178,6 +192,8 @@ export const BookCover: React.FC<BookCoverProps> = ({
           />
         )}
 
+        <BookCoverBadges book={effectiveBook as BookCoverProps['book']} />
+
         {/* Subtle book spine & edge finish */}
         <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/25 via-white/10 to-transparent pointer-events-none" />
         <div className="absolute inset-0 ring-1 ring-inset ring-black/10 dark:ring-white/10 rounded-xl pointer-events-none" />
@@ -199,6 +215,7 @@ export const BookCover: React.FC<BookCoverProps> = ({
     <div
       className={`relative aspect-[3/4] overflow-hidden rounded-xl bg-gradient-to-br from-[#FFF3F4] via-[#FBE5E8] to-[#FCECEF] dark:from-[#261418] dark:via-[#1E1215] dark:to-[#16161A] border border-[#E43136]/25 select-none flex flex-col justify-between shadow-xs ${paddingClass} ${className}`}
     >
+      <BookCoverBadges book={effectiveBook as BookCoverProps['book']} />
       {/* Left spine accent */}
       <div className="absolute inset-y-0 left-0 w-2 bg-[#E43136] pointer-events-none" />
 

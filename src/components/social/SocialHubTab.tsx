@@ -23,6 +23,9 @@ interface SocialHubTabProps {
   currentUser: UserProfile;
   allUsers: UserProfile[];
   friendships: Friendship[];
+  groupInvitations?: { id: string; groupId: string; groupName: string; inviterName: string; status: string }[];
+  onAcceptGroupInvitation?: (invitationId: string, groupId: string) => Promise<void>;
+  onDeclineGroupInvitation?: (invitationId: string, groupId: string) => Promise<void>;
   allBooks: Book[];
   onSendFriendRequest: (targetUser: UserProfile) => Promise<void>;
   onAcceptFriendRequest: (friendshipId: string) => Promise<void>;
@@ -37,6 +40,9 @@ export const SocialHubTab: React.FC<SocialHubTabProps> = ({
   currentUser,
   allUsers,
   friendships,
+  groupInvitations = [],
+  onAcceptGroupInvitation,
+  onDeclineGroupInvitation,
   allBooks,
   onSendFriendRequest,
   onAcceptFriendRequest,
@@ -45,8 +51,10 @@ export const SocialHubTab: React.FC<SocialHubTabProps> = ({
   onRemoveFriendship,
   onStartChat,
 }) => {
-  const [subTab, setSubTab] = useState<'friends' | 'requests' | 'suggestions' | 'search'>('friends');
+  const [subTab, setSubTab] = useState<'friends' | 'requests' | 'suggestions' | 'search' | 'blocked'>('friends');
   const [searchQuery, setSearchQuery] = useState('');
+  const [unblockingId, setUnblockingId] = useState<string | null>(null);
+  const [busyGroupInviteId, setBusyGroupInviteId] = useState<string | null>(null);
 
   const userMap = useMemo(() => {
     const map = new Map<string, UserProfile>();
@@ -82,6 +90,17 @@ export const SocialHubTab: React.FC<SocialHubTabProps> = ({
       outgoingRequests: outgoing,
     };
   }, [friendships, currentUserId, userMap]);
+
+  const blockedConnections = useMemo(() => friendships
+    .filter((relationship) => relationship.status === 'blocked' &&
+      (relationship.requesterId === currentUserId || relationship.receiverId === currentUserId))
+    .map((relationship) => ({
+      relationship,
+      user: userMap.get(relationship.requesterId === currentUserId ? relationship.receiverId : relationship.requesterId),
+    }))
+    .filter((entry): entry is { relationship: Friendship; user: UserProfile } => Boolean(entry.user)),
+  [friendships, currentUserId, userMap]);
+  const pendingGroupInvitations = groupInvitations.filter((invitation) => invitation.status === 'pending');
 
   // Generate friend suggestions based on social graph
   const suggestions = useMemo(() => {
@@ -137,11 +156,13 @@ export const SocialHubTab: React.FC<SocialHubTabProps> = ({
               {
                 id: 'requests',
                 label: `Requests ${
-                  incomingRequests.length > 0 ? `(${incomingRequests.length})` : ''
+                  incomingRequests.length + pendingGroupInvitations.length > 0
+                    ? `(${incomingRequests.length + pendingGroupInvitations.length})` : ''
                 }`,
               },
               { id: 'suggestions', label: 'Suggestions' },
               { id: 'search', label: 'Search Users' },
+              { id: 'blocked', label: `Blocked (${blockedConnections.length})` },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -290,6 +311,40 @@ export const SocialHubTab: React.FC<SocialHubTabProps> = ({
             </div>
 
             {/* Outgoing Requests */}
+            {pendingGroupInvitations.length > 0 && (
+              <div className="mb-6">
+                <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#6E6E77] dark:text-[#9E9EA8]">
+                  Group invitations ({pendingGroupInvitations.length})
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {pendingGroupInvitations.map((invitation) => (
+                    <div key={invitation.id} className="flex items-center gap-3 rounded-2xl border border-[#E5E5EB] bg-white p-3 dark:border-[#22222A] dark:bg-[#121217]">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-[#202020] dark:text-white">{invitation.groupName}</p>
+                        <p className="truncate text-[10px] text-[#8E8E98]">Invited by {invitation.inviterName}</p>
+                      </div>
+                      <button type="button" disabled={Boolean(busyGroupInviteId)} onClick={async () => {
+                        if (!onAcceptGroupInvitation) return;
+                        setBusyGroupInviteId(invitation.id);
+                        try { await onAcceptGroupInvitation(invitation.id, invitation.groupId); }
+                        finally { setBusyGroupInviteId(null); }
+                      }} className="rounded-lg bg-[#198754] px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">
+                        {busyGroupInviteId === invitation.id ? 'Joining…' : 'Accept'}
+                      </button>
+                      <button type="button" disabled={Boolean(busyGroupInviteId)} onClick={async () => {
+                        if (!onDeclineGroupInvitation) return;
+                        setBusyGroupInviteId(invitation.id);
+                        try { await onDeclineGroupInvitation(invitation.id, invitation.groupId); }
+                        finally { setBusyGroupInviteId(null); }
+                      }} className="rounded-lg border border-[#DDDDE3] px-3 py-2 text-[11px] font-semibold dark:border-[#33333D] disabled:opacity-50">
+                        {busyGroupInviteId === invitation.id ? 'Working…' : 'Decline'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Outgoing Requests */}
             <div>
               <h3 className="text-xs font-bold text-[#6E6E77] dark:text-[#9E9EA8] uppercase tracking-wider mb-3">
                 Sent Requests ({outgoingRequests.length})
@@ -328,6 +383,41 @@ export const SocialHubTab: React.FC<SocialHubTabProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {subTab === 'blocked' && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-[#202020] dark:text-white">Blocked accounts</h3>
+            {blockedConnections.length === 0 ? (
+              <div className="rounded-2xl border border-[#E5E5EB] dark:border-[#22222A] bg-white dark:bg-[#121217] p-8 text-center text-xs text-[#8E8E98]">
+                You have no blocked accounts.
+              </div>
+            ) : blockedConnections.map(({ relationship, user }) => (
+              <div key={relationship.id} className="flex items-center gap-3 rounded-xl border border-[#E5E5EB] dark:border-[#22222A] bg-white dark:bg-[#121217] p-3">
+                <UserAvatar photoURL={user.photoURL} name={user.displayName} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold text-[#202020] dark:text-white">{user.displayName}</p>
+                  <p className="truncate text-[10px] text-[#8E8E98]">@{user.username}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={unblockingId === relationship.id}
+                  onClick={async () => {
+                    if (!window.confirm(`Unblock ${user.displayName}?`)) return;
+                    setUnblockingId(relationship.id);
+                    try {
+                      await onRemoveFriendship(relationship.id);
+                    } finally {
+                      setUnblockingId(null);
+                    }
+                  }}
+                  className="rounded-lg border border-[#DDDDE3] dark:border-[#33333D] px-3 py-2 text-[11px] font-semibold disabled:opacity-50"
+                >
+                  {unblockingId === relationship.id ? 'Unblocking…' : 'Unblock'}
+                </button>
+              </div>
+            ))}
           </div>
         )}
 

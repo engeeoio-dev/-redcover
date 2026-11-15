@@ -29,6 +29,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   const [search, setSearch] = useState('');
   const [selectedUids, setSelectedUids] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   if (!isOpen) return null;
 
@@ -54,13 +55,15 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     e.preventDefault();
     if (!name.trim() || isSubmitting) return;
 
+    setSubmitError('');
     setIsSubmitting(true);
     try {
       const selectedUsers = allUsers.filter((u) => selectedUids.includes(u.uid));
       await onCreateGroup(name.trim(), description.trim(), avatarURL, selectedUsers);
       onClose();
     } catch (err) {
-      console.error(err);
+      console.error('Group creation failed:', err);
+      setSubmitError(err instanceof Error ? err.message : 'Could not create the group. Check your connection and try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -93,6 +96,13 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {isSubmitting && (
+          <div className="h-1 w-full overflow-hidden bg-[#F4D5D6] dark:bg-[#3A2022]" role="status" aria-live="polite">
+            <div className="h-full w-1/3 animate-pulse bg-[#E43136]" />
+            <span className="sr-only">Creating group and sending invitations…</span>
+          </div>
+        )}
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1">
@@ -210,6 +220,11 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
           </div>
 
           {/* Footer */}
+          {submitError && (
+            <div className="mx-5 mb-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300" role="alert">
+              {submitError}
+            </div>
+          )}
           <div className="pt-2 flex justify-end gap-2 border-t border-[#E5E5EB] dark:border-[#22222A]">
             <button
               type="button"

@@ -269,7 +269,10 @@ const AuthenticatedHubPage: React.FC<{
     inviteToReadTogether,
   } = useRedcover();
 
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get('groupId')
+  );
+  const [groupInviteBusyId, setGroupInviteBusyId] = useState<string | null>(null);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState<boolean>(false);
 
   const myGroups = useMemo(() => {
@@ -1854,6 +1857,24 @@ const AuthenticatedHubPage: React.FC<{
             currentUser={currentUser}
             allUsers={users}
             friendships={friendships}
+            groupInvitations={groupInvitations}
+            onAcceptGroupInvitation={async (invitationId, groupId) => {
+              try {
+                await acceptGroupInvitation(invitationId, groupId);
+                setSelectedGroupId(groupId);
+                addToast('Joined the group.', 'success');
+              } catch {
+                addToast('Could not join this group. Please try again.', 'error');
+              }
+            }}
+            onDeclineGroupInvitation={async (invitationId, groupId) => {
+              try {
+                await declineGroupInvitation(invitationId, groupId);
+                addToast('Group invitation declined.', 'info');
+              } catch {
+                addToast('Could not decline this invitation. Please try again.', 'error');
+              }
+            }}
             allBooks={books}
             onSendFriendRequest={async (target) => {
               await sendFriendRequest(target);
@@ -1925,24 +1946,42 @@ const AuthenticatedHubPage: React.FC<{
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
+                          disabled={groupInviteBusyId === inv.id}
                           onClick={async () => {
-                            await acceptGroupInvitation(inv.id, inv.groupId);
-                            setSelectedGroupId(inv.groupId);
-                            addToast(`Joined group "${inv.groupName}"!`, 'success');
+                            if (groupInviteBusyId) return;
+                            setGroupInviteBusyId(inv.id);
+                            try {
+                              await acceptGroupInvitation(inv.id, inv.groupId);
+                              setSelectedGroupId(inv.groupId);
+                              addToast(`Joined group "${inv.groupName}"!`, 'success');
+                            } catch {
+                              addToast(`Could not join "${inv.groupName}". Please try again.`, 'error');
+                            } finally {
+                              setGroupInviteBusyId(null);
+                            }
                           }}
                           className="px-2 py-1 rounded bg-[#198754] text-white text-[11px] font-semibold cursor-pointer"
                         >
-                          Accept
+                          {groupInviteBusyId === inv.id ? 'Joining…' : 'Accept'}
                         </button>
                         <button
                           type="button"
+                          disabled={groupInviteBusyId === inv.id}
                           onClick={async () => {
-                            await declineGroupInvitation(inv.id, inv.groupId);
-                            addToast('Declined invitation', 'info');
+                            if (groupInviteBusyId) return;
+                            setGroupInviteBusyId(inv.id);
+                            try {
+                              await declineGroupInvitation(inv.id, inv.groupId);
+                              addToast('Declined invitation', 'info');
+                            } catch {
+                              addToast('Could not decline this invitation. Please try again.', 'error');
+                            } finally {
+                              setGroupInviteBusyId(null);
+                            }
                           }}
                           className="px-2 py-1 rounded border border-[#DDDDE3] text-[#6E6E77] text-[11px] font-semibold cursor-pointer"
                         >
-                          Decline
+                          {groupInviteBusyId === inv.id ? 'Working…' : 'Decline'}
                         </button>
                       </div>
                     </div>
@@ -2461,7 +2500,6 @@ const AuthenticatedHubPage: React.FC<{
         onCreateGroup={async (name, desc, avatar, invitees) => {
           const gId = await createGroup(name, desc, avatar, invitees);
           setSelectedGroupId(gId);
-          addToast(`Group "${name}" created!`, 'success');
         }}
       />
 

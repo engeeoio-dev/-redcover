@@ -171,6 +171,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [showActionDropdown, setShowActionDropdown] = useState(false);
   const [showReactionDetails, setShowReactionDetails] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
+  const swipeDistanceRef = useRef(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
   // Audio Voice Player state
@@ -289,6 +290,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     isSwiping.current = false;
+    swipeDistanceRef.current = 0;
+    setSwipeOffset(0);
 
     longPressTimer.current = setTimeout(() => {
       if (!isSwiping.current) {
@@ -301,24 +304,41 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     const diffX = e.touches[0].clientX - touchStartX.current;
     const diffY = e.touches[0].clientY - touchStartY.current;
 
-    if (Math.abs(diffY) > 10) {
+    if (Math.abs(diffY) > 12 && Math.abs(diffY) > Math.abs(diffX)) {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      swipeDistanceRef.current = 0;
       setSwipeOffset(0);
       return;
     }
 
-    if (diffX > 20 && diffX < 80) {
+    // Incoming messages reply on a right swipe; outgoing messages reply on a
+    // left swipe. Keep the finger movement visual, but store a stable distance
+    // in a ref so a quick release cannot read stale React state.
+    const replyDistance = isOwn ? -diffX : diffX;
+    if (replyDistance > 12 && Math.abs(diffX) > Math.abs(diffY)) {
       isSwiping.current = true;
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
-      setSwipeOffset(diffX);
+      swipeDistanceRef.current = Math.min(replyDistance, 84);
+      setSwipeOffset(Math.sign(diffX) * Math.min(Math.abs(diffX), 84));
+    } else if (replyDistance <= 0) {
+      swipeDistanceRef.current = 0;
+      setSwipeOffset(0);
     }
   };
 
   const handleTouchEnd = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    if (swipeOffset > 45) {
+    if (swipeDistanceRef.current > 45) {
       onReply(message);
     }
+    swipeDistanceRef.current = 0;
+    setSwipeOffset(0);
+    isSwiping.current = false;
+  };
+
+  const handleTouchCancel = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    swipeDistanceRef.current = 0;
     setSwipeOffset(0);
     isSwiping.current = false;
   };
@@ -355,6 +375,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
       draggable
       onDragStart={(event) => {
         const raw = message.text || 'Message';

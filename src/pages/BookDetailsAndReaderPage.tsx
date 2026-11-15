@@ -697,6 +697,9 @@ export const BookDetailsPage: React.FC = () => {
               <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-bold text-[#202020] dark:text-[#F4F4F6]">
                 {book.title}
               </h1>
+              {book.contentType === 'graphic_novel' && <span className="rounded-full bg-[#E43136]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[#E43136]">Graphic novel</span>}
+              <span className="rounded-full border border-[#DDDDE3] dark:border-[#33333D] px-2.5 py-1 text-[10px] font-bold">{book.ageRating === '18+' ? 'Adults only · 18+' : book.ageRating === 'all' || !book.ageRating ? 'All ages' : book.ageRating}</span>
+              {book.createdAt && Date.now() - new Date(book.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000 && Date.now() >= new Date(book.createdAt).getTime() && <span className="rounded-full bg-[#E43136] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">New</span>}
               {book.redCode && (
                 <div
                   title="Unique 6-digit numeric RedCode"
@@ -799,6 +802,17 @@ export const BookDetailsPage: React.FC = () => {
               {cleanDescriptionText(book.description)}
             </p>
 
+            {book.contentType === 'graphic_novel' && book.seriesId && (
+              <section className="rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] p-3" aria-label="Graphic novel episodes">
+                <h2 className="mb-2 text-xs font-bold">{book.seriesTitle || 'Series'} · Episodes</h2>
+                <div className="flex flex-wrap gap-2">
+                  {books.filter((episode) => episode.seriesId === book.seriesId && episode.status === 'published')
+                    .sort((a, b) => (a.episodeNumber || 1) - (b.episodeNumber || 1))
+                    .map((episode) => <Link key={episode.id} to={`/book/${episode.id}`} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${episode.id === book.id ? 'border-[#E43136] text-[#E43136]' : 'border-[#DDDDE3] dark:border-[#33333D]'}`}>Episode {episode.episodeNumber || 1}: {episode.title}</Link>)}
+                </div>
+              </section>
+            )}
+
             {/* Structured Reading & Engagement Controls Bar */}
             <div className="pt-2 flex flex-col gap-3">
               {/* Row 1: Primary Reading & Co-reading CTAs */}
@@ -819,11 +833,11 @@ export const BookDetailsPage: React.FC = () => {
                   : book.format === 'pdf' || Boolean(book.fileURL)) && (
                   <button
                     type="button"
-                    onClick={() => navigate(`/read/${book.id}?mode=pdf`)}
+                    onClick={() => navigate(book.contentType === 'graphic_novel' ? `/graphic-novel/${book.id}` : `/read/${book.id}?mode=pdf`)}
                     className="py-2.5 px-4 sm:py-3 sm:px-5 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] hover:border-[#E43136] bg-white dark:bg-[#181820] text-[#202020] dark:text-[#F4F4F6] text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer active:scale-98"
                   >
                     <FileText className="w-4 h-4 text-[#E43136]" />
-                    <span>Original PDF</span>
+                    <span>{book.contentType === 'graphic_novel' ? 'Open Graphic Novel' : 'Original PDF'}</span>
                   </button>
                 )}
 

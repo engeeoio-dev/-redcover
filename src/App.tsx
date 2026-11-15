@@ -13,6 +13,7 @@ const ExplorePage = React.lazy(() => import('./pages/ExploreAndSearchPage').then
 const SearchPage = React.lazy(() => import('./pages/ExploreAndSearchPage').then((m) => ({ default: m.SearchPage })));
 const BookDetailsPage = React.lazy(() => import('./pages/BookDetailsAndReaderPage').then((m) => ({ default: m.BookDetailsPage })));
 const ReaderPage = React.lazy(() => import('./pages/BookDetailsAndReaderPage').then((m) => ({ default: m.ReaderPage })));
+const GraphicNovelReaderPage = React.lazy(() => import('./pages/GraphicNovelReaderPage').then((m) => ({ default: m.GraphicNovelReaderPage })));
 const HubPage = React.lazy(() => import('./pages/HubPage').then((m) => ({ default: m.HubPage })));
 const CreateBookPage = React.lazy(() => import('./pages/CreateBookPage').then((m) => ({ default: m.CreateBookPage })));
 const ProfilePage = React.lazy(() => import('./pages/AccountAndAdminPages').then((m) => ({ default: m.ProfilePage })));
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="/copyright" element={<CopyrightPolicyPage />} />
             <Route path="/book/:bookId" element={<BookDetailsPage />} />
             <Route path="/read/:bookId" element={<ReaderPage />} />
+            <Route path="/graphic-novel/:bookId" element={<GraphicNovelReaderPage />} />
             <Route path="/hub" element={<Navigate to="/hub/chats" replace />} />
             <Route path="/hub/*" element={<HubPage />} />
             <Route path="/create" element={<CreateBookPage />} />

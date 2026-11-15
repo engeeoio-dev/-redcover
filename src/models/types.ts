@@ -2,6 +2,8 @@ export type UserRole = 'user' | 'author' | 'admin' | 'system';
 export type MembershipPlan = 'free' | 'premium';
 export type BookFormat = 'story' | 'pdf';
 export type BookReadingMode = 'text' | 'pdf' | 'audio';
+export type BookContentType = 'standard' | 'graphic_novel';
+export type BookAgeRating = 'all' | '12+' | '16+' | '18+';
 export type BookStatus = 'draft' | 'published' | 'pending' | 'removed';
 export type NotificationCategory =
   | 'social'
@@ -73,6 +75,20 @@ export interface ParagraphComment {
   createdAt: string;
 }
 
+export interface ComicPageComment {
+  id: string;
+  bookId: string;
+  pageNumber: number;
+  parentId: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  replyToUserName: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserPrivateInfo {
   uid: string;
   email: string;
@@ -95,6 +111,11 @@ export interface Book {
   coverURL: string;
   fileURL: string;
   format: BookFormat;
+  contentType?: BookContentType;
+  ageRating?: BookAgeRating;
+  seriesId?: string;
+  seriesTitle?: string;
+  episodeNumber?: number;
   availableModes?: BookReadingMode[];
   category: string;
   language: string;

@@ -116,6 +116,7 @@ export const ProfilePage: React.FC = () => {
   const [cropTarget, setCropTarget] = useState<{ file: File; field: 'avatar' | 'cover' } | null>(null);
   const [nameColorInput, setNameColorInput] = useState('');
   const [staffRole, setStaffRole] = useState<string | null>(null);
+  const [isBlockingProfile, setIsBlockingProfile] = useState(false);
 
   useEffect(() => {
     if (!targetUid) { setStaffRole(null); return; }
@@ -315,11 +316,25 @@ export const ProfilePage: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => blockUser(profileUser)}
+                  disabled={isBlockingProfile}
+                  onClick={async () => {
+                    const confirmed = window.confirm(
+                      `Block ${profileUser.displayName}? They will no longer be able to contact you through Redcover.`
+                    );
+                    if (!confirmed || isBlockingProfile) return;
+                    setIsBlockingProfile(true);
+                    try {
+                      await blockUser(profileUser);
+                    } finally {
+                      setIsBlockingProfile(false);
+                    }
+                  }}
                   aria-label="Block user"
-                  className="p-2 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] text-[#777780] hover:text-[#D9363E] cursor-pointer"
+                  aria-busy={isBlockingProfile}
+                  title={isBlockingProfile ? 'Blocking…' : 'Block user'}
+                  className="p-2 rounded-xl border border-[#DDDDE3] dark:border-[#2C2C35] text-[#777780] hover:text-[#D9363E] cursor-pointer disabled:opacity-50"
                 >
-                  <Ban className="w-4 h-4" />
+                  {isBlockingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
                 </button>
               </>
             )}

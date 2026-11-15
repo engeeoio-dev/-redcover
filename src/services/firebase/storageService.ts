@@ -734,6 +734,13 @@ export function normalizeBookDoc(
       Boolean(fileURL && isLikelyPdfUrl(fileURL))
         ? 'pdf'
         : 'story',
+    contentType: raw.contentType === 'graphic_novel' ? 'graphic_novel' : 'standard',
+    ageRating: ['all', '12+', '16+', '18+'].includes(String(raw.ageRating)) ? raw.ageRating : 'all',
+    seriesId: raw.seriesId ? String(raw.seriesId).slice(0, 128) : undefined,
+    seriesTitle: raw.seriesTitle ? String(raw.seriesTitle).slice(0, 120) : undefined,
+    episodeNumber: Number.isInteger(Number(raw.episodeNumber)) && Number(raw.episodeNumber) > 0
+      ? Math.min(9999, Number(raw.episodeNumber))
+      : undefined,
     availableModes: Array.isArray(raw.availableModes)
       ? raw.availableModes.filter(
           (mode: unknown): mode is BookReadingMode =>

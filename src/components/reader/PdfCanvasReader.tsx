@@ -259,10 +259,19 @@ export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
       setErrorMessage('');
       setUsingPrintSheetFallback(false);
 
-      if (!fileURL || fileURL.startsWith('https://redcover.app/pdf-text-edition/')) {
-        // Book was uploaded with Firestore-backed PDF chapters
+      if (fileURL.startsWith('https://redcover.app/pdf-text-edition/')) {
+        // Explicit legacy text-only edition; this is not presented as an
+        // uploaded original PDF.
         setPdfDoc(null);
         setUsingPrintSheetFallback(true);
+        setLoadingPdf(false);
+        return;
+      }
+
+      if (!fileURL) {
+        setPdfDoc(null);
+        setUsingPrintSheetFallback(false);
+        setErrorMessage('The original PDF file is not attached to this book.');
         setLoadingPdf(false);
         return;
       }
@@ -311,21 +320,15 @@ export const PdfCanvasReader: React.FC<PdfCanvasReaderProps> = ({
         onPageChange(startP, loadedDoc.numPages);
       } catch (err: any) {
         if (cancelled) return;
-        // If remote Storage bucket has CORS restrictions on raw ArrayBuffer requests,
-        // automatically activate the high-precision Paginated Print Layout fallback if chapters exist,
-        // or show the diagnostic recovery bar.
-        if (chapters.length > 0) {
-          setPdfDoc(null);
-          setUsingPrintSheetFallback(true);
-          const startP = Math.max(1, Math.min(synthesizedPrintPages.length, initialPage || 1));
-          setCurrentPage(startP);
-          setPageInput(String(startP));
-          onPageChange(startP, synthesizedPrintPages.length);
-        } else {
-          setErrorMessage(
-            err?.message || 'Unable to stream PDF binary directly from remote storage.'
-          );
-        }
+        // Never silently replace a selected original PDF with extracted/reflowed
+        // text: that changes page layout and is not the uploaded document.
+        // Legacy text-only editions are handled explicitly above by their
+        // synthetic pdf-text-edition URL; real PDF failures must be visible.
+        setPdfDoc(null);
+        setUsingPrintSheetFallback(false);
+        setErrorMessage(
+          err?.message || 'Unable to load the original PDF from secure storage.'
+        );
       } finally {
         if (!cancelled) {
           setLoadingPdf(false);

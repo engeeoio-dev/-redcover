@@ -172,6 +172,7 @@ service cloud.firestore {
         'id', 'title', 'description', 'shortDescription', 'authorId', 'authorName',
         'authorUsername', 'authorAvatar', 'coverURL', 'fileURL', 'format',
         'availableModes',
+        'contentType', 'ageRating', 'seriesId', 'seriesTitle', 'episodeNumber',
         'category', 'language', 'rating', 'reviewsCount', 'views', 'likes',
         'saves', 'chaptersCount', 'featured', 'status', 'createdAt', 'updatedAt'
       ])
@@ -191,6 +192,11 @@ service cloud.firestore {
         && data.availableModes.size() <= 3
         && data.availableModes.hasOnly(['text', 'pdf', 'audio'])
       ))
+      && (!('contentType' in data) || data.contentType in ['standard', 'graphic_novel'])
+      && (!('ageRating' in data) || data.ageRating in ['all', '12+', '16+', '18+'])
+      && (!('seriesId' in data) || (data.seriesId is string && data.seriesId.size() <= 128))
+      && (!('seriesTitle' in data) || (data.seriesTitle is string && data.seriesTitle.size() <= 120))
+      && (!('episodeNumber' in data) || (data.episodeNumber is int && data.episodeNumber >= 1 && data.episodeNumber <= 9999))
       && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
       && data.language is string && data.language.size() >= 1 && data.language.size() <= 60
       && (data.rating is int || data.rating is float) && data.rating >= 0 && data.rating <= 5
@@ -203,6 +209,28 @@ service cloud.firestore {
       && data.status is string && data.status in ['draft', 'published', 'pending', 'removed']
       && data.createdAt is timestamp
       && data.updatedAt is timestamp;
+    }
+
+    function canReadBookAgeRating(data) {
+      let rating = ('ageRating' in data) ? data.ageRating : 'all';
+      let band = isSignedIn() ? request.auth.token.redcoverAgeBand : '';
+      return (isSignedIn() && data.authorId == request.auth.uid) || isAdmin() || rating == 'all'
+        || (rating == '12+' && band in ['12plus', '16plus', '18plus'])
+        || (rating == '16+' && band in ['16plus', '18plus'])
+        || (rating == '18+' && band == '18plus');
+    }
+
+    function isValidComicPageComment(data) {
+      return data.keys().hasAll(['id','bookId','pageNumber','parentId','userId','userName','userAvatar','replyToUserName','text','createdAt','updatedAt'])
+        && data.keys().hasOnly(['id','bookId','pageNumber','parentId','userId','userName','userAvatar','replyToUserName','text','createdAt','updatedAt'])
+        && isValidId(data.id) && isValidId(data.bookId)
+        && data.pageNumber is int && data.pageNumber >= 1 && data.pageNumber <= 10000
+        && (data.parentId == '' || isValidId(data.parentId))
+        && isValidId(data.userId) && data.userName is string && data.userName.size() <= 100
+        && data.userAvatar is string && data.userAvatar.size() <= 5000
+        && data.replyToUserName is string && data.replyToUserName.size() <= 100
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 1000
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
     function isValidChapter(data) {
@@ -1429,6 +1457,46 @@ service cloud.firestore {
         && incoming().createdAt == request.time;
       allow update: if false;
       allow delete: if isVerified() && isValidId(likeId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Per-page comments for published graphic novels.
+    match /comicPageComments/{commentId} {
+      allow get, list: if isVerified()
+        && isValidId(commentId)
+        && exists(/databases/$(database)/documents/books/$(resource.data.bookId))
+        && get(/databases/$(database)/documents/books/$(resource.data.bookId)).data.status == 'published'
+        && get(/databases/$(database)/documents/books/$(resource.data.bookId)).data.contentType == 'graphic_novel'
+        && canReadBookAgeRating(get(/databases/$(database)/documents/books/$(resource.data.bookId)).data);
+      allow create: if isVerified()
+        && isValidId(commentId)
+        && isValidComicPageComment(incoming())
+        && incoming().id == commentId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/books/$(incoming().bookId))
+        && get(/databases/$(database)/documents/books/$(incoming().bookId)).data.status == 'published'
+        && get(/databases/$(database)/documents/books/$(incoming().bookId)).data.contentType == 'graphic_novel'
+        && canReadBookAgeRating(get(/databases/$(database)/documents/books/$(incoming().bookId)).data)
+        && (incoming().parentId == '' || (
+          exists(/databases/$(database)/documents/comicPageComments/$(incoming().parentId))
+          && get(/databases/$(database)/documents/comicPageComments/$(incoming().parentId)).data.bookId == incoming().bookId
+          && get(/databases/$(database)/documents/comicPageComments/$(incoming().parentId)).data.pageNumber == incoming().pageNumber
+          && get(/databases/$(database)/documents/comicPageComments/$(incoming().parentId)).data.parentId == ''
+        ));
+      allow update: if isVerified()
+        && isValidComicPageComment(incoming())
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().bookId == existing().bookId
+        && incoming().pageNumber == existing().pageNumber
+        && incoming().parentId == existing().parentId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['text','updatedAt']);
+      allow delete: if isVerified() && (existing().userId == request.auth.uid || isAdmin()
+        || (existing().parentId != ''
+          && get(/databases/$(database)/documents/comicPageComments/$(existing().parentId)).data.userId == request.auth.uid));
     }
 
     // 18. Social Post Comments

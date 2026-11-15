@@ -153,8 +153,15 @@ exports.getBookPdfAccess = onCall({ region: 'us-central1' }, async (request) => 
   const ownerId = book.authorId || book.userId || book.uploaderId || book.writerId;
   const owner = ownerId === uid;
   const claims = user.customClaims || {};
+  const rating = ['all', '12+', '16+', '18+'].includes(book.ageRating) ? book.ageRating : 'all';
+  const ageBand = claims.redcoverAgeBand;
+  const ageRank = { under12: 0, '12plus': 12, '16plus': 16, '18plus': 18 };
+  const requiredAge = { all: 0, '12+': 12, '16+': 16, '18+': 18 }[rating];
   const permissions = Array.isArray(claims.hqPermissions) ? claims.hqPermissions : [];
   const admin = claims.hqRole === 'owner' || permissions.includes('*') || permissions.includes('content:books');
+  if (requiredAge > 0 && !owner && !admin && (!ageBand || (ageRank[ageBand] || 0) < requiredAge)) {
+    fail('permission-denied', 'Verify your Google account age to read this graphic novel.');
+  }
   const accountControl = await db.collection('hqAccountControls').doc(uid).get();
   if (accountControl.get('suspended') === true) fail('permission-denied', 'This account is suspended.');
   // Legacy Firestore rules treat status-less catalog records as published.
@@ -164,6 +171,43 @@ exports.getBookPdfAccess = onCall({ region: 'us-central1' }, async (request) => 
   const objectPath = storageObjectPathFromRecord(book.fileURL, ['book_pdfs', 'book_content', 'pdfs', 'books', 'users']);
   if (!objectPath) fail('failed-precondition', 'This book does not reference a supported Redcover PDF object.');
   return createShortLivedReadUrl(objectPath);
+});
+
+exports.verifyGoogleAccountAge = onCall({ region: 'us-central1' }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) fail('unauthenticated', 'Sign in with Google to verify your age.');
+  const accessToken = String(request.data?.accessToken || '');
+  if (accessToken.length < 20 || accessToken.length > 5000) fail('invalid-argument', 'Google age permission is missing.');
+
+  const googleIdentityResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!googleIdentityResponse.ok) fail('permission-denied', 'Google age permission expired. Sign in again and allow birthday access.');
+  const googleIdentity = await googleIdentityResponse.json();
+  const googleIds = request.auth.token.firebase?.identities?.['google.com'] || [];
+  if (!googleIdentity.sub || !googleIds.includes(googleIdentity.sub)) fail('permission-denied', 'The Google account does not match this Redcover account.');
+
+  const birthdayResponse = await fetch('https://people.googleapis.com/v1/people/me?personFields=birthdays', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!birthdayResponse.ok) fail('failed-precondition', 'Google did not return a complete birthday for this account.');
+  const profile = await birthdayResponse.json();
+  const birthday = (profile.birthdays || []).map((entry) => entry.date).find((date) =>
+    Number.isInteger(date?.year) && date.year > 0 && Number.isInteger(date?.month) && date.month > 0 && Number.isInteger(date?.day) && date.day > 0
+  );
+  if (!birthday) fail('failed-precondition', 'Add a complete date of birth to your Google account, then verify again.');
+
+  const today = new Date();
+  let age = today.getUTCFullYear() - birthday.year;
+  const birthdayHasPassed = today.getUTCMonth() + 1 > birthday.month ||
+    (today.getUTCMonth() + 1 === birthday.month && today.getUTCDate() >= birthday.day);
+  if (!birthdayHasPassed) age -= 1;
+  if (age < 0 || age > 120) fail('failed-precondition', 'Google returned an invalid birthday.');
+
+  const ageBand = age >= 18 ? '18plus' : age >= 16 ? '16plus' : age >= 12 ? '12plus' : 'under12';
+  const user = await auth.getUser(uid);
+  await auth.setCustomUserClaims(uid, { ...(user.customClaims || {}), redcoverAgeBand: ageBand });
+  return { ageBand };
 });
 
 exports.getChatAttachmentAccess = onCall({ region: 'us-central1' }, async (request) => {
